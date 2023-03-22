@@ -9,6 +9,7 @@ packages = [{include = "py_crawler"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 asn1crypto = "^1.5.1"
+requests = "^2.28.2"
 
 
 [build-system]
