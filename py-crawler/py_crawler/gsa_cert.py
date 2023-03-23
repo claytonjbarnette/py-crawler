@@ -1,7 +1,9 @@
-from asn1crypto import x509, pem, cms
-from typing import Optional, List, OrderedDict, Tuple, Any
+from asn1crypto import x509, pem, cms, core
+from typing import Optional, List, OrderedDict, Any, Dict
 import logging
 import requests
+import ldap3
+from ldap3.utils import uri as ldap_uri
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
@@ -9,33 +11,105 @@ logger = logging.getLogger("py_crawler.gsa_cert")
 class GsaCert:
     cert_dict: OrderedDict[str, Any]
 
-    def __init__(self, input_bytes: bytes) -> None:
+    def __init__(
+        self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
+    ) -> None:
+        if len(cert_dict.keys()) > 0:
+            self.cert_dict = cert_dict
         ## Note no real error handling here..
-        cert_bytes: Optional[bytes]  # This is to prevent a linting error
-        cert = x509.Certificate
-        if pem.detect(input_bytes):
-            (_, _, cert_bytes) = pem.unarmor(input_bytes)
-            cert = x509.Certificate.load(cert_bytes)
-            if cert.native is not None:
-                self.cert_dict = cert.native["tbs_certificate"]
+        elif len(input_bytes) > 0:
+            cert_bytes: Optional[bytes]  # This is to prevent a linting error
+            cert = x509.Certificate
+            if pem.detect(input_bytes):
+                # Ignoring type for next assignment due to obscure API behavior
+                _, _, cert_bytes = pem.unarmor(input_bytes)  # type: ignore
+                cert = x509.Certificate.load(cert_bytes)
+                if cert.native is not None:
+                    self.cert_dict = cert.native["tbs_certificate"]
+            else:
+                cert = x509.Certificate.load(input_bytes)
+                if cert.native is not None:
+                    self.cert_dict = cert.native["tbs_certificate"]
         else:
-            cert = x509.Certificate.load(input_bytes)
-            if cert.native is not None:
-                print(cert.native)
-                self.cert_dict = cert.native["tbs_certificate"]
-
-    def __init__(self, cert_dict: OrderedDict[str, Any]) -> None:
-        self.cert_dict = cert_dict
+            raise Exception("Must provide a bitstring or parsed certificate dictionary.")
 
     def __str__(self) -> str:
-        issuer_cn = self.cert_dict
+        issuer_cn = str(self.cert_dict["issuer"][next(reversed(self.cert_dict["issuer"]))])
+        subject_cn = str(self.cert_dict["subject"][next(reversed(self.cert_dict["subject"]))])
+        return issuer_cn + " -> " + subject_cn
+
+    @property
+    def identifier(self) -> str:
+        identifier: str = ""
+        identifier += str(self.cert_dict["issuer"]) + ":"
+        identifier += str(self.cert_dict["serial_number"])
+        return identifier
+
+    def get_sia_http(self, url: str) -> List["GsaCert"]:
+        found_certs: List["GsaCert"] = []
+        logging.debug("Fetching P7C from %s", url)
+        sia_response: requests.models.Response = requests.get(url)
+        if sia_response:
+            logger.info("Got P7C file from %s", url)
+        else:
+            logger.warning("Unable to get P7C file from %s", url)
+        # Process SIA data to extract certs
+
+        if len(sia_response.content) > 0:
+            p7c_content: cms.ContentInfo = cms.ContentInfo.load(sia_response.content)
+            if (
+                p7c_content.native is not None
+                and "content" in p7c_content.native.keys()
+                and "certificates" in p7c_content.native["content"].keys()
+                and p7c_content.native["content"]["certificates"] is not None
+            ):
+                logging.debug(p7c_content)
+                for cert in p7c_content.native["content"]["certificates"]:
+                    found_certs.append(GsaCert(cert_dict=cert["tbs_certificate"]))
+
+        return found_certs
+
+    def get_sia_ldap(self, url: str) -> List["GsaCert"]:
+        found_certs: List[GsaCert] = []
+        uri_components: Dict[str, str] = ldap_uri.parse_uri(url)
+        # if uri_components["scheme"] != "ldap":
+        #     logger.error("get_sia_ldap called, but schema is not ldap for %s", url)
+        #     raise Exception("Invalid URL for LDAP")
+
+        server_str = uri_components["host"]
+        server_str += uri_components["port"] if uri_components["port"] is not None else ""
+
+        search_filter = "(objectclass=*)"
+
+        server = ldap3.Server(server_str, get_info=ldap3.SCHEMA)
+
+        with ldap3.Connection(server_str, auto_bind="DEFAULT", check_names=True) as conn:
+            conn.search(
+                search_base=uri_components["base"],
+                search_filter=search_filter,
+                search_scope=ldap3.BASE,
+                attributes=uri_components["attributes"],
+            )
+            if conn.response is not None:
+                results: List[bytes] = conn.response[0]["raw_attributes"][
+                    "crossCertificatePair;binary"
+                ]
+
+                for result in results:
+                    pass  # crossCertificatePairs are funky to process..
+                    # asn_cert_pair_sequence: core.Sequence = core.Sequence.load(result)
+                    # logger.debug("CertificatePair: %s", asn_cert_pair_sequence.debug())
+                    # found_certs.append(GsaCert(input_bytes=asn_cert_pair_sequence.dump()))
+
+        return found_certs
 
     def sia_certs(self) -> List["GsaCert"]:  # Quotes are required to satisfy the linter
         found_certs: List[GsaCert] = []
         extensions: List[OrderedDict[str, Any]] = []
         sia_url: Optional[str] = None
+        sia_p7c_bytes: bytes = b""
 
-        logger.info("Getting cert from SIA bundle in %s", self.__str__())
+        logger.info("Getting certs from SIA bundle in %s", self.__str__())
 
         ## Get the SIA URL, if it exists in the cert
         if "extensions" in self.cert_dict.keys():
@@ -43,8 +117,9 @@ class GsaCert:
             extensions.extend(self.cert_dict["extensions"])
 
         for extension in extensions:
-            logger.debug("Reading extension %s", extension["extn_id"])
+            logger.debug("Reading extension %s in cert %s", extension["extn_id"], self)
             if extension["extn_id"] == "subject_information_access":
+                logger.debug("Found SIA in cert %s", self)
                 access_methods: List[OrderedDict[str, Any]] = extension["extn_value"]
 
                 for access_method in access_methods:
@@ -55,28 +130,18 @@ class GsaCert:
                         sia_url = access_method["access_location"]
 
         if sia_url == None:
-            logger.info("No SIA URL in certificate %s.", self.__str__())
+            logger.info("No SIA URL in certificate %s.", self)
             return found_certs
 
         logger.info("SIA URL found: %s", sia_url)
 
         # Get the P7C file from the SIA URL
-        sia_response: requests.models.Response = requests.get(sia_url)
-
-        if sia_response:
-            logger.info("Got P7C file from %s", sia_url)
+        if "http://" in sia_url:
+            found_certs.extend(self.get_sia_http(sia_url))
+        elif "ldap://" in sia_url:
+            pass  # There are some ldap SIAs, but do we support them?
+            # found_certs.extend(self.get_sia_ldap(sia_url))
         else:
-            logger.warning("Unable to get P7C file from %s", sia_url)
-            return found_certs
-
-        sia_p7c_bytes: bytes = sia_response.content
-
-        p7c_content: cms.ContentInfo = cms.ContentInfo.load(sia_p7c_bytes)
-
-        if p7c_content.native is not None:
-            cert_dicts: List[x509.Certificate] = p7c_content.native["content"]
-
-        for cert in cert_dicts:
-            pass
+            logging.debug("Skipping non-HTTP URL %s", sia_url)
 
         return found_certs
