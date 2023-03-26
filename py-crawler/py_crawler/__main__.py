@@ -42,7 +42,7 @@ def main():
             logger.info("Skipping already processed cert %s", cert_to_process)
 
     # We have walked the whole tree, now let's build some data structures.
-    # First, we'll build the P7B
+    # First, we'll build the P7B with all the certs to support pathbuilding
 
 
 if __name__ == "__main__":
