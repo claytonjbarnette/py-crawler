@@ -5,20 +5,32 @@ import requests
 import ldap3
 from ldap3.utils import uri as ldap_uri
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
 
 @dataclass
-class XiaResults:
+class XiaResult:
     url: str
     status: str
-    certs: List[str]
+    certs: List["GsaCert"]
 
 
 class GsaCert:
     cert_dict: OrderedDict[str, Any]
-    information_access_results: List[XiaResults] = []
+    status: str
+    information_access_results: List[XiaResult] = []
+
+    def is_valid(self) -> bool:
+        if (
+            "validity" in self.cert_dict.keys()
+            and self.cert_dict["validity"]["not_before"] < datetime.now(tz=timezone.utc)
+            and self.cert_dict["validity"]["not_after"] > datetime.now(tz=timezone.utc)
+        ):
+            return True
+        else:
+            return False
 
     def __init__(
         self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
@@ -42,6 +54,11 @@ class GsaCert:
         else:
             raise Exception("Must provide a bitstring or parsed certificate dictionary.")
 
+        if self.is_valid():
+            self.status = "VALID"
+        else:
+            self.status = "INVALID"
+
     def __str__(self) -> str:
         issuer_cn = str(self.cert_dict["issuer"][next(reversed(self.cert_dict["issuer"]))])
         subject_cn = str(self.cert_dict["subject"][next(reversed(self.cert_dict["subject"]))])
@@ -54,7 +71,8 @@ class GsaCert:
         identifier += str(self.cert_dict["serial_number"])
         return identifier
 
-    def get_info_access_certs_http(self, url: str) -> List["GsaCert"]:
+    def get_info_access_certs_http(self, url: str) -> XiaResult:
+        status: str = "UNKNOWN"
         found_certs: List["GsaCert"] = []
         logger.debug("Fetching P7C from %s", url)
         sia_response: requests.models.Response = requests.get(url)
@@ -62,6 +80,7 @@ class GsaCert:
             logger.info("Got P7C file from %s", url)
         else:
             logger.warning("Unable to get P7C file from %s", url)
+            status = "ACCESS ERROR"
         # Process SIA data to extract certs
 
         if len(sia_response.content) > 0:
@@ -72,11 +91,13 @@ class GsaCert:
                 and "certificates" in p7c_content.native["content"].keys()
                 and p7c_content.native["content"]["certificates"] is not None
             ):
-                logger.debug(p7c_content)
+                status = "OK"
                 for cert in p7c_content.native["content"]["certificates"]:
                     found_certs.append(GsaCert(cert_dict=cert["tbs_certificate"]))
+            else:
+                status = "INVALID P7C"
 
-        return found_certs
+        return XiaResult(url=url, status=status, certs=found_certs)
 
     def get_sia_ldap(self, url: str) -> List["GsaCert"]:
         # TODO - we can get the results from LDAP, but not sure how to process the crossCertificatePair
@@ -113,15 +134,24 @@ class GsaCert:
 
         return found_certs
 
-    def info_access_certs(
-        self, type: str
+    def information_access_certs(
+        self,
     ) -> List["GsaCert"]:  # Quotes are required to satisfy the linter
         found_certs: List[GsaCert] = []
+        for result in self.information_access_results:
+            found_certs.extend(result.certs)
+        return found_certs
+
+    def get_information_access_results(self):
         extensions: List[OrderedDict[str, Any]] = []
         info_access_urls: List[str] = []
-        sia_p7c_bytes: bytes = b""
+        self.information_access_results = []
 
         logger.info("Getting certs from SIA bundle in %s", self.__str__())
+
+        # Check the status of the cert and return empty list if it's not valid
+        if self.status != "VALID":
+            logger.debug("Skipping invalid cert %s", self)
 
         ## Get the SIA URL, if it exists in the cert
         if "extensions" in self.cert_dict.keys():
@@ -140,6 +170,7 @@ class GsaCert:
                         and "access_location" in access_method.keys()
                     ):
                         info_access_urls.append(access_method["access_location"])
+
             elif extension["extn_id"] == "authority_information_access":
                 logger.debug("Found AIA in cert %s", self)
                 access_methods = extension["extn_value"]
@@ -152,19 +183,21 @@ class GsaCert:
                         info_access_urls.append(access_method["access_location"])
 
         if len(info_access_urls) == 0:
-            logger.info("No SIA/AIA URL in certificate %s.", self)
-            return found_certs
+            logger.info("No SIA/AIA URLs in certificate %s.", self)
 
         for info_access_url in info_access_urls:
             # Get the P7C file from the SIA URL
-            if "http://" in info_access_url:
+            if info_access_url.startswith("http://"):
                 logger.debug("Found HTTP URL %s in %s", info_access_url, self)
-                found_certs.extend(self.get_info_access_certs_http(info_access_url))
-            elif "ldap://" in info_access_url:
+                self.information_access_results.append(
+                    self.get_info_access_certs_http(info_access_url)
+                )
+
+            elif info_access_url.startswith("ldap://"):
                 logger.debug("Skipping LDAP URL %s in %s", info_access_url, self)
                 pass  # There are some ldap SIAs, but do we support them?
                 # found_certs.extend(self.get_sia_ldap(sia_url))
             else:
-                logger.debug("Unknown URI scheme in  URL %s", info_access_url)
+                logger.debug("Unknown URI scheme in URL %s", info_access_url)
 
         return found_certs

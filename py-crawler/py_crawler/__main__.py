@@ -19,7 +19,7 @@ def main():
     logger = logging.getLogger("py_crawler")
     logger.setLevel(logging.DEBUG)
     console_logger = logging.StreamHandler()
-    console_logger.setLevel(logging.INFO)
+    console_logger.setLevel(logging.DEBUG)
     logger.addHandler(console_logger)
     logger.debug("logging DEBUG messages")
 
@@ -57,7 +57,8 @@ def main():
     report_filename = "crawler-" + str(datetime.now())
     with open(report_filename, "w") as report:
         for cert in processed_certs:
-            report.write(json.dumps(processed_certs[cert].en, indent=4))
+            pass
+            # report.write(json.dumps(processed_certs[cert].en, indent=4))
 
 
 if __name__ == "__main__":
