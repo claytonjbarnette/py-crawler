@@ -11,3 +11,7 @@ class CertificateResult:
     def __init__(self, cert: GsaCert) -> None:
         self.cert = cert
         self.identifer = cert.identifier
+
+    def report(self) -> None:
+        for url in self.cert.aia_url_info:
+            pass

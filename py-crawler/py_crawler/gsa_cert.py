@@ -4,12 +4,21 @@ import logging
 import requests
 import ldap3
 from ldap3.utils import uri as ldap_uri
+from dataclasses import dataclass
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
 
+@dataclass
+class XiaResults:
+    url: str
+    status: str
+    certs: List[str]
+
+
 class GsaCert:
     cert_dict: OrderedDict[str, Any]
+    information_access_results: List[XiaResults] = []
 
     def __init__(
         self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
@@ -45,9 +54,9 @@ class GsaCert:
         identifier += str(self.cert_dict["serial_number"])
         return identifier
 
-    def get_sia_http(self, url: str) -> List["GsaCert"]:
+    def get_info_access_certs_http(self, url: str) -> List["GsaCert"]:
         found_certs: List["GsaCert"] = []
-        logging.debug("Fetching P7C from %s", url)
+        logger.debug("Fetching P7C from %s", url)
         sia_response: requests.models.Response = requests.get(url)
         if sia_response:
             logger.info("Got P7C file from %s", url)
@@ -63,13 +72,14 @@ class GsaCert:
                 and "certificates" in p7c_content.native["content"].keys()
                 and p7c_content.native["content"]["certificates"] is not None
             ):
-                logging.debug(p7c_content)
+                logger.debug(p7c_content)
                 for cert in p7c_content.native["content"]["certificates"]:
                     found_certs.append(GsaCert(cert_dict=cert["tbs_certificate"]))
 
         return found_certs
 
     def get_sia_ldap(self, url: str) -> List["GsaCert"]:
+        # TODO - we can get the results from LDAP, but not sure how to process the crossCertificatePair
         found_certs: List[GsaCert] = []
         uri_components: Dict[str, str] = ldap_uri.parse_uri(url)
         # if uri_components["scheme"] != "ldap":
@@ -103,10 +113,12 @@ class GsaCert:
 
         return found_certs
 
-    def sia_certs(self) -> List["GsaCert"]:  # Quotes are required to satisfy the linter
+    def info_access_certs(
+        self, type: str
+    ) -> List["GsaCert"]:  # Quotes are required to satisfy the linter
         found_certs: List[GsaCert] = []
         extensions: List[OrderedDict[str, Any]] = []
-        sia_url: Optional[str] = None
+        info_access_urls: List[str] = []
         sia_p7c_bytes: bytes = b""
 
         logger.info("Getting certs from SIA bundle in %s", self.__str__())
@@ -127,21 +139,32 @@ class GsaCert:
                         access_method["access_method"] == "ca_repository"
                         and "access_location" in access_method.keys()
                     ):
-                        sia_url = access_method["access_location"]
+                        info_access_urls.append(access_method["access_location"])
+            elif extension["extn_id"] == "authority_information_access":
+                logger.debug("Found AIA in cert %s", self)
+                access_methods = extension["extn_value"]
 
-        if sia_url == None:
-            logger.info("No SIA URL in certificate %s.", self)
+                for access_method in access_methods:
+                    if (
+                        access_method["access_method"] == "ca_issuers"
+                        and "access_location" in access_method.keys()
+                    ):
+                        info_access_urls.append(access_method["access_location"])
+
+        if len(info_access_urls) == 0:
+            logger.info("No SIA/AIA URL in certificate %s.", self)
             return found_certs
 
-        logger.info("SIA URL found: %s", sia_url)
-
-        # Get the P7C file from the SIA URL
-        if "http://" in sia_url:
-            found_certs.extend(self.get_sia_http(sia_url))
-        elif "ldap://" in sia_url:
-            pass  # There are some ldap SIAs, but do we support them?
-            # found_certs.extend(self.get_sia_ldap(sia_url))
-        else:
-            logging.debug("Skipping non-HTTP URL %s", sia_url)
+        for info_access_url in info_access_urls:
+            # Get the P7C file from the SIA URL
+            if "http://" in info_access_url:
+                logger.debug("Found HTTP URL %s in %s", info_access_url, self)
+                found_certs.extend(self.get_info_access_certs_http(info_access_url))
+            elif "ldap://" in info_access_url:
+                logger.debug("Skipping LDAP URL %s in %s", info_access_url, self)
+                pass  # There are some ldap SIAs, but do we support them?
+                # found_certs.extend(self.get_sia_ldap(sia_url))
+            else:
+                logger.debug("Unknown URI scheme in  URL %s", info_access_url)
 
         return found_certs
