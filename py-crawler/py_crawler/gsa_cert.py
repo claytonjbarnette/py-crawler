@@ -1,11 +1,18 @@
-from asn1crypto import x509, pem, cms, core
+from asn1crypto import x509, pem, cms, core, crl
+from certvalidator import crl_client
 from typing import Optional, List, OrderedDict, Any, Dict
 import logging
 import requests
 import ldap3
+from urllib.error import URLError
 from ldap3.utils import uri as ldap_uri
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
+import subprocess
+from pathlib import Path
+import os
+import base64
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
@@ -18,19 +25,52 @@ class XiaResult:
 
 
 class GsaCert:
+    class Status(Enum):
+        VALID = 0
+        INVALID = 1
+        REVOKED = 2
+        REVOCATION_CHECK_FAILED = 3
+
+    cert: x509.Certificate
     cert_dict: OrderedDict[str, Any]
-    status: str
+    issuer: str
+    subject: str
+    status: Enum
     information_access_results: List[XiaResult] = []
 
-    def is_valid(self) -> bool:
+    def get_status(self) -> Status:
+        # If the certificate is expired or not yet valid, don't bother checking anything else
         if (
             "validity" in self.cert_dict.keys()
-            and self.cert_dict["validity"]["not_before"] < datetime.now(tz=timezone.utc)
-            and self.cert_dict["validity"]["not_after"] > datetime.now(tz=timezone.utc)
+            and self.cert_dict["validity"]["not_before"] > datetime.now(tz=timezone.utc)
+            and self.cert_dict["validity"]["not_after"] < datetime.now(tz=timezone.utc)
         ):
-            return True
+            return self.Status.INVALID
         else:
-            return False
+            # If the certificate is valid from a time perspective, run pathbuilder
+            try:
+                script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
+                pathbuilder_process = subprocess.run(
+                    [
+                        "java",
+                        "-jar",
+                        str(script_directory / "resources" / "pathbuilder-1.2.jar"),
+                        "--output",
+                        "short",
+                        "--base64",
+                        base64.b64encode(self.cert.dump()),
+                    ],
+                    check=True,
+                    timeout=10,
+                    capture_output=True,
+                    encoding="utf8",
+                )
+            except subprocess.CalledProcessError as cpe:
+                logging.critical("Calling pathbuilder failed: %s", cpe.stderr)
+            except subprocess.TimeoutExpired:
+                logging.critical("Process timed out.")
+
+            return self.Status.VALID
 
     def __init__(
         self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
@@ -40,36 +80,47 @@ class GsaCert:
         ## Note no real error handling here..
         elif len(input_bytes) > 0:
             cert_bytes: Optional[bytes]  # This is to prevent a linting error
-            cert = x509.Certificate
+            cert: x509.Certificate
             if pem.detect(input_bytes):
                 # Ignoring type for next assignment due to obscure API behavior
                 _, _, cert_bytes = pem.unarmor(input_bytes)  # type: ignore
                 cert = x509.Certificate.load(cert_bytes)
+
                 if cert.native is not None:
+                    self.cert = cert
                     self.cert_dict = cert.native["tbs_certificate"]
             else:
                 cert = x509.Certificate.load(input_bytes)
                 if cert.native is not None:
+                    self.cert = cert
                     self.cert_dict = cert.native["tbs_certificate"]
         else:
             raise Exception("Must provide a bitstring or parsed certificate dictionary.")
 
-        if self.is_valid():
-            self.status = "VALID"
-        else:
-            self.status = "INVALID"
+        subject = ""
+        for rdn in reversed(self.cert_dict["subject"].keys()):
+            for element in reversed(rdn):
+                subject += rdn + ":" + element + ","
+        # strip the final comma from the string before returning
+        self.subject = subject[:-1]
 
-    def __str__(self) -> str:
-        issuer_cn = str(self.cert_dict["issuer"][next(reversed(self.cert_dict["issuer"]))])
-        subject_cn = str(self.cert_dict["subject"][next(reversed(self.cert_dict["subject"]))])
-        return issuer_cn + " -> " + subject_cn
+        issuer = ""
+        for rdn in reversed(self.cert_dict["issuer"].keys()):
+            for element in reversed(rdn):
+                issuer += rdn + ":" + element + ","
+        # strip the final comma from the string before returning
+        self.issuer = issuer[:-1]
+
+        self.status = self.get_status()
 
     @property
     def identifier(self) -> str:
-        identifier: str = ""
-        identifier += str(self.cert_dict["issuer"]) + ":"
+        identifier = str(self.cert_dict["issuer"]) + ":"
         identifier += str(self.cert_dict["serial_number"])
         return identifier
+
+    def __str__(self) -> str:
+        return self.issuer + " -> " + self.subject
 
     def get_info_access_certs_http(self, url: str) -> XiaResult:
         status: str = "UNKNOWN"
@@ -150,7 +201,7 @@ class GsaCert:
         logger.info("Getting certs from SIA bundle in %s", self.__str__())
 
         # Check the status of the cert and return empty list if it's not valid
-        if self.status != "VALID":
+        if self.status != self.Status.VALID:
             logger.debug("Skipping invalid cert %s", self)
 
         ## Get the SIA URL, if it exists in the cert
@@ -199,5 +250,3 @@ class GsaCert:
                 # found_certs.extend(self.get_sia_ldap(sia_url))
             else:
                 logger.debug("Unknown URI scheme in URL %s", info_access_url)
-
-        return found_certs
