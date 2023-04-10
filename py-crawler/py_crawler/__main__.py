@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 
 certs_to_process: List[GsaCert] = []
-processed_nodes: Dict[str, GsaCert] = {}
+processed_certs: Dict[str, GsaCert] = {}
 
 
 def get_sia_certs():
@@ -30,6 +30,8 @@ def main():
         common_bytes = common_file.read()
 
     anchor = GsaCert(input_bytes=common_bytes)
+    # by definition the trust anchor is considered VALID
+    anchor.status = GsaCert.Status.VALID
 
     common_graph = CertificateGraph(anchor=anchor)
     common_graph.build_graph()
@@ -37,7 +39,7 @@ def main():
     # First lets create a report of the certs discovered
     report_filename = "crawler-" + str(datetime.now())
     with open(report_filename, "w") as report:
-        for cert in processed_nodes:
+        for cert in processed_certs:
             pass
             # report.write(json.dumps(processed_certs[cert].en, indent=4))
 

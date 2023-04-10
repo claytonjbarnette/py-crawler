@@ -30,15 +30,21 @@ class GsaCert:
         INVALID = 1
         REVOKED = 2
         REVOCATION_CHECK_FAILED = 3
+        UNCHECKED = 4
 
     cert: x509.Certificate
     cert_dict: OrderedDict[str, Any]
     issuer: str
     subject: str
     status: Enum
-    information_access_results: List[XiaResult] = []
+    sia_results: List[XiaResult]
+    aia_results: List[XiaResult]
+    path: List["GsaCert"]  # The list of certs in the path to common
 
-    def get_status(self) -> Status:
+    def get_status(self, intermediate_certs: List["GsaCert"]) -> Status:
+        p7c_input: Optional[cms.SignedData] = None
+        script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
+        logger.debug("Getting Certificate Status")
         # If the certificate is expired or not yet valid, don't bother checking anything else
         if (
             "validity" in self.cert_dict.keys()
@@ -48,27 +54,73 @@ class GsaCert:
             return self.Status.INVALID
         else:
             # If the certificate is valid from a time perspective, run pathbuilder
-            try:
-                script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
-                pathbuilder_process = subprocess.run(
+
+            # First, create a cms SignedInfo object from the certs passed in as "intermediate certs"
+            if len(intermediate_certs) > 0:
+                logger.debug("Intermediate Certs passed to get_status for %s:", self)
+                logger.debug(intermediate_certs)
+                p7c_certs: List[x509.Certificate] = []
+
+                for gsaCert in intermediate_certs:
+                    p7c_certs.append(gsaCert.cert)
+
+                p7c_input = cms.SignedData(
+                    {
+                        "version": "v1",
+                        "digest_algorithms": [],
+                        "encap_content_info": {
+                            "content_type": "data",
+                            "content": None,
+                        },
+                        "certificates": p7c_certs,
+                        "crls": None,
+                        "signer_infos": [],
+                    }
+                )
+
+            # Run pathbuilder
+            logger.debug("Certificate within validity period, running pathbuilder")
+
+            # Create arg list for pathbuilder
+            pathbuilder_args = [
+                "java",
+                "-jar",
+                str(script_directory / "resources" / "pathbuilder-1.2.jar"),
+                "--output",
+                "short",
+                "--base64",
+                base64.b64encode(self.cert.dump()),
+            ]
+
+            # Add intermediate certs if provided
+            if p7c_input is not None:
+                pathbuilder_args.extend(
                     [
-                        "java",
-                        "-jar",
-                        str(script_directory / "resources" / "pathbuilder-1.2.jar"),
-                        "--output",
-                        "short",
-                        "--base64",
-                        base64.b64encode(self.cert.dump()),
-                    ],
+                        "--bundle-base64",
+                        base64.b64encode(p7c_input.dump()),
+                    ]
+                )
+            logger.debug("Pathbuilder command arguments %s", pathbuilder_args)
+
+            try:
+                pathbuilder_process = subprocess.run(
+                    pathbuilder_args,
                     check=True,
                     timeout=10,
                     capture_output=True,
                     encoding="utf8",
                 )
             except subprocess.CalledProcessError as cpe:
-                logging.critical("Calling pathbuilder failed: %s", cpe.stderr)
+                logger.critical("Calling pathbuilder failed: %s", cpe.stderr)
+                return self.Status.REVOCATION_CHECK_FAILED
             except subprocess.TimeoutExpired:
-                logging.critical("Process timed out.")
+                logger.critical("Process timed out.")
+                return self.Status.REVOCATION_CHECK_FAILED
+
+            logger.debug(pathbuilder_process.stdout)
+
+            # If the path verification was successful, save the original cert list to the "path" field
+            self.path = intermediate_certs
 
             return self.Status.VALID
 
@@ -99,19 +151,35 @@ class GsaCert:
 
         subject = ""
         for rdn in reversed(self.cert_dict["subject"].keys()):
-            for element in reversed(rdn):
-                subject += rdn + ":" + element + ","
+            if type(self.cert_dict["subject"][rdn]) == str:
+                subject += rdn + ":" + self.cert_dict["subject"][rdn] + ","
+            elif type(self.cert_dict["subject"][rdn]) == list:
+                for element in reversed(self.cert_dict["subject"][rdn]):
+                    subject += rdn + ":" + element + ","
         # strip the final comma from the string before returning
         self.subject = subject[:-1]
 
         issuer = ""
         for rdn in reversed(self.cert_dict["issuer"].keys()):
-            for element in reversed(rdn):
-                issuer += rdn + ":" + element + ","
+            if type(self.cert_dict["issuer"][rdn]) == str:
+                issuer += rdn + ":" + self.cert_dict["issuer"][rdn] + ","
+            elif type(self.cert_dict["issuer"][rdn]) == list:
+                for element in reversed(self.cert_dict["issuer"][rdn]):
+                    issuer += rdn + ":" + element + ","
         # strip the final comma from the string before returning
         self.issuer = issuer[:-1]
 
-        self.status = self.get_status()
+        logger.info("Got certificate %s", self)
+
+        self.status = self.Status.UNCHECKED
+        self.sia_results = []
+        self.aia_results = []
+        # self.status = self.get_status()
+
+        # THIS CREATED AN INFINITE LOOP
+        # if self.status == self.Status.VALID:
+        #     logger.info("Certificate valid, fetching InfoAccess results")
+        #     self.get_information_access_results()
 
     @property
     def identifier(self) -> str:
@@ -132,21 +200,23 @@ class GsaCert:
         else:
             logger.warning("Unable to get P7C file from %s", url)
             status = "ACCESS ERROR"
-        # Process SIA data to extract certs
 
+        # Process SIA data to extract certs
         if len(sia_response.content) > 0:
-            p7c_content: cms.ContentInfo = cms.ContentInfo.load(sia_response.content)
-            if (
-                p7c_content.native is not None
-                and "content" in p7c_content.native.keys()
-                and "certificates" in p7c_content.native["content"].keys()
-                and p7c_content.native["content"]["certificates"] is not None
-            ):
-                status = "OK"
-                for cert in p7c_content.native["content"]["certificates"]:
-                    found_certs.append(GsaCert(cert_dict=cert["tbs_certificate"]))
-            else:
-                status = "INVALID P7C"
+            p7c: Optional[cms.ContentInfo] = None
+            try:
+                p7c = cms.ContentInfo.load(sia_response.content)
+            except ValueError as ve:
+                status = "Invalid P7C"
+
+            status = "OK"
+
+            if type(p7c) == cms.ContentInfo and p7c != None and p7c["content"] is not None:
+                for cert in p7c["content"]["certificates"]:
+                    logger.debug("found cert")
+                    found_certs.append(GsaCert(input_bytes=cert.dump()))
+        else:
+            status = "Zero-byte P7C"
 
         return XiaResult(url=url, status=status, certs=found_certs)
 
@@ -185,18 +255,48 @@ class GsaCert:
 
         return found_certs
 
-    def information_access_certs(
-        self,
-    ) -> List["GsaCert"]:  # Quotes are required to satisfy the linter
+    def information_access_certs(self) -> List["GsaCert"]:
+        # Get the certs if they haven't been retrieved yet
+        if len(self.information_access_results) == 0:
+            self.get_information_access_results()
+
         found_certs: List[GsaCert] = []
         for result in self.information_access_results:
             found_certs.extend(result.certs)
         return found_certs
 
+    def get_sia_certs(self) -> List["GsaCert"]:
+        sia_certs = []
+
+        # If we haven't looked at the SIA, do it now.
+        if len(self.sia_results) == 0:
+            sia_values = [
+                extension["extn_value"]
+                for extension in self.cert_dict["extensions"]
+                if extension["extn_id"] == "subject_information_access"
+            ]
+
+            for sia_value in sia_values:
+                for value_dict in sia_value:
+                    if (
+                        "access_method" in value_dict.keys()
+                        and value_dict["access_method"] == "ca_repository"
+                        and "access_location" in value_dict.keys()
+                    ):
+                        sia_url = value_dict["access_location"]
+                        logger.debug("Found SIA URL %s", sia_url)
+                        self.sia_results.append(self.get_info_access_url(sia_url))
+
+        # Get the certs from the SIAs
+        for result in self.sia_results:
+            sia_certs.extend(result.certs)
+
+        logger.debug("Returning %s certs from SIA", len(sia_certs))
+        return sia_certs
+
     def get_information_access_results(self):
         extensions: List[OrderedDict[str, Any]] = []
         info_access_urls: List[str] = []
-        self.information_access_results = []
 
         logger.info("Getting certs from SIA bundle in %s", self.__str__())
 
@@ -236,17 +336,14 @@ class GsaCert:
         if len(info_access_urls) == 0:
             logger.info("No SIA/AIA URLs in certificate %s.", self)
 
-        for info_access_url in info_access_urls:
-            # Get the P7C file from the SIA URL
-            if info_access_url.startswith("http://"):
-                logger.debug("Found HTTP URL %s in %s", info_access_url, self)
-                self.information_access_results.append(
-                    self.get_info_access_certs_http(info_access_url)
-                )
+    def get_info_access_url(self, info_access_url) -> XiaResult:
+        if info_access_url.startswith("http://"):
+            logger.debug("Found HTTP URL %s in %s", info_access_url, self)
+            return self.get_info_access_certs_http(info_access_url)
 
-            elif info_access_url.startswith("ldap://"):
-                logger.debug("Skipping LDAP URL %s in %s", info_access_url, self)
-                pass  # There are some ldap SIAs, but do we support them?
-                # found_certs.extend(self.get_sia_ldap(sia_url))
-            else:
-                logger.debug("Unknown URI scheme in URL %s", info_access_url)
+        elif info_access_url.startswith("ldap://"):
+            logger.debug("Skipping LDAP URL %s in %s", info_access_url, self)
+            return XiaResult(info_access_url, "Unsupported schema", [])
+        else:
+            logger.debug("Unknown URI scheme in URL %s", info_access_url)
+            return XiaResult(info_access_url, "Unsupported schema", [])
