@@ -8,11 +8,12 @@ from urllib.error import URLError
 from ldap3.utils import uri as ldap_uri
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum, StrEnum
 import subprocess
 from pathlib import Path
 import os
 import base64
+import json
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
@@ -25,24 +26,24 @@ class XiaResult:
 
 
 class GsaCert:
-    class Status(Enum):
-        VALID = 0
-        INVALID = 1
-        REVOKED = 2
-        REVOCATION_CHECK_FAILED = 3
-        UNCHECKED = 4
+    class Status(StrEnum):
+        VALID = "valid"
+        INVALID = "invalid"
+        REVOKED = "revoked"
+        REVOCATION_CHECK_FAILED = "check_failed"
+        UNCHECKED = "unchecked"
 
     cert: x509.Certificate
     cert_dict: OrderedDict[str, Any]
     issuer: str
     subject: str
-    status: Enum
+    status: Status
     sia_results: List[XiaResult]
     aia_results: List[XiaResult]
     path: List["GsaCert"]  # The list of certs in the path to common
 
     def get_status(self, intermediate_certs: List["GsaCert"]) -> Status:
-        p7c_input: Optional[cms.SignedData] = None
+        p7c_obj: Optional[cms.ContentInfo] = None
         script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
         logger.debug("Getting Certificate Status")
         # If the certificate is expired or not yet valid, don't bother checking anything else
@@ -51,18 +52,18 @@ class GsaCert:
             and self.cert_dict["validity"]["not_before"] > datetime.now(tz=timezone.utc)
             and self.cert_dict["validity"]["not_after"] < datetime.now(tz=timezone.utc)
         ):
-            return self.Status.INVALID
+            self.status = self.Status.INVALID
         else:
             # If the certificate is valid from a time perspective, run pathbuilder
 
             # First, create a cms SignedInfo object from the certs passed in as "intermediate certs"
             if len(intermediate_certs) > 0:
                 logger.debug("Intermediate Certs passed to get_status for %s:", self)
-                logger.debug(intermediate_certs)
-                p7c_certs: List[x509.Certificate] = []
+
+                p7c_certs = cms.CertificateSet()
 
                 for gsaCert in intermediate_certs:
-                    p7c_certs.append(gsaCert.cert)
+                    p7c_certs.append(cms.CertificateChoices({"certificate": gsaCert.cert}))
 
                 p7c_input = cms.SignedData(
                     {
@@ -70,11 +71,17 @@ class GsaCert:
                         "digest_algorithms": [],
                         "encap_content_info": {
                             "content_type": "data",
-                            "content": None,
+                            "content": b"",
                         },
                         "certificates": p7c_certs,
-                        "crls": None,
                         "signer_infos": [],
+                    }
+                )
+
+                p7c_obj = cms.ContentInfo(
+                    {
+                        "content_type": "signed_data",
+                        "content": p7c_input,
                     }
                 )
 
@@ -93,14 +100,16 @@ class GsaCert:
             ]
 
             # Add intermediate certs if provided
-            if p7c_input is not None:
+            if p7c_obj is not None:
                 pathbuilder_args.extend(
                     [
                         "--bundle-base64",
-                        base64.b64encode(p7c_input.dump()),
+                        base64.b64encode(p7c_obj.dump()),
                     ]
                 )
             logger.debug("Pathbuilder command arguments %s", pathbuilder_args)
+
+            pathbuilder_process = None
 
             try:
                 pathbuilder_process = subprocess.run(
@@ -112,17 +121,24 @@ class GsaCert:
                 )
             except subprocess.CalledProcessError as cpe:
                 logger.critical("Calling pathbuilder failed: %s", cpe.stderr)
-                return self.Status.REVOCATION_CHECK_FAILED
+                self.status = self.Status.REVOCATION_CHECK_FAILED
             except subprocess.TimeoutExpired:
                 logger.critical("Process timed out.")
-                return self.Status.REVOCATION_CHECK_FAILED
+                self.status = self.Status.REVOCATION_CHECK_FAILED
 
-            logger.debug(pathbuilder_process.stdout)
+            if pathbuilder_process is not None:
+                logger.debug(pathbuilder_process.stdout)
+                pathbuilder_status = json.loads(pathbuilder_process.stdout)
 
-            # If the path verification was successful, save the original cert list to the "path" field
-            self.path = intermediate_certs
+                # If the path verification was successful, save the original cert list to the "path" field
+                self.path = intermediate_certs
 
-            return self.Status.VALID
+                if pathbuilder_status["result"] == "True":
+                    self.status = self.Status.VALID
+                elif pathbuilder_status["result"] == "False":
+                    self.status = self.Status.REVOKED
+
+            return self.status
 
     def __init__(
         self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
@@ -174,12 +190,7 @@ class GsaCert:
         self.status = self.Status.UNCHECKED
         self.sia_results = []
         self.aia_results = []
-        # self.status = self.get_status()
-
-        # THIS CREATED AN INFINITE LOOP
-        # if self.status == self.Status.VALID:
-        #     logger.info("Certificate valid, fetching InfoAccess results")
-        #     self.get_information_access_results()
+        self.path = []
 
     @property
     def identifier(self) -> str:
@@ -347,3 +358,22 @@ class GsaCert:
         else:
             logger.debug("Unknown URI scheme in URL %s", info_access_url)
             return XiaResult(info_access_url, "Unsupported schema", [])
+
+    def report_entry(self) -> Dict[str, Any]:
+        report_entry = {}
+        report_entry["subject"] = self.subject
+        report_entry["issuer"] = self.issuer
+        report_entry["status"] = self.status
+        if self.status == self.Status.VALID:
+            if len(self.path) > 0:
+                report_entry["path-to-common"] = []
+                for cert in self.path:
+                    report_entry["path-to-common"].append(cert.subject)
+
+            report_entry["sia-entries"] = {}
+            for result in self.sia_results:
+                report_entry["sia-entries"][result.url] = []
+                for cert in result.certs:
+                    report_entry["sia-entries"][result.url].append(cert.subject)
+
+        return report_entry

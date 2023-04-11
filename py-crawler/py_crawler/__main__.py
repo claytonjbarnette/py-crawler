@@ -6,13 +6,6 @@ import logging
 from datetime import datetime
 import json
 
-certs_to_process: List[GsaCert] = []
-processed_certs: Dict[str, GsaCert] = {}
-
-
-def get_sia_certs():
-    pass
-
 
 def main():
     # Configure Logging
@@ -39,9 +32,7 @@ def main():
     # First lets create a report of the certs discovered
     report_filename = "crawler-" + str(datetime.now())
     with open(report_filename, "w") as report:
-        for cert in processed_certs:
-            pass
-            # report.write(json.dumps(processed_certs[cert].en, indent=4))
+        report.write(common_graph.report())
 
 
 if __name__ == "__main__":

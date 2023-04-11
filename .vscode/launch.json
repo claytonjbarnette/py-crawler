@@ -10,7 +10,11 @@
             "request": "launch",
             "program": "/workspaces/py-crawler/py-crawler/py_crawler/__main__.py",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "args": [
+                "&>",
+                "out.txt"
+            ]
         }
     ]
 }

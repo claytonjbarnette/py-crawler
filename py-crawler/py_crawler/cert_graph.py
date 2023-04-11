@@ -2,6 +2,7 @@ from gsa_cert import GsaCert
 import logging
 from typing import List, Dict, Set
 from dataclasses import dataclass
+import json
 
 logger = logging.getLogger("py_crawler.cert_graph")
 
@@ -29,22 +30,32 @@ class CertificateGraph:
         logger.debug("Getting intermediates for %s", leaf_cert.subject)
         path: List[GsaCert] = []
 
-        # If you call the function with the root, or one of the root's immediate children,
-        # the list of intermediats is empty.
-        if leaf_cert.subject == self.root.subject:
-            # If you call the function with the root cert itself, we return an empty list
-            pass
-        elif leaf_cert.issuer == self.root.subject:
-            # If you call the function with one of the root cert's immediate children, we
-            # register the child as an intermediate but return an empty list
-            self.paths[leaf_cert.subject] = [leaf_cert]
+        # See if we already have a path for this CA
+        if leaf_cert.subject in self.paths.keys():
+            path = self.paths[leaf_cert.subject]
+        # If not, we'll have to create the path
         else:
-            # Otherwise, create a new list with the leaf_cert appended to the parent cert's intermediate list.
-            # Graphs are always built from the root out, so for any cert submitted, the list of
-            # intermediates from the next node up should already exist.
-            path.extend(self.paths[leaf_cert.issuer])
-            path.append(leaf_cert)
+            # If you call the function with the root, or one of the root's immediate children,
+            # the list of intermediates is empty.
+            if leaf_cert.subject == self.root.subject:
+                # If you call the function with the root cert itself, we return an empty list
+                pass
+            elif leaf_cert.issuer == self.root.subject:
+                # If you call the function with one of the root cert's immediate children, we
+                # register the child as an intermediate but return an empty list
+                self.paths[leaf_cert.subject] = [leaf_cert]
+            else:
+                # Otherwise, create a new list with the leaf_cert appended to the parent cert's intermediate list.
+                # Graphs are always built from the root out, so for any cert submitted, the list of
+                # intermediates from the next node up should already exist.
+                path.extend(self.paths[leaf_cert.issuer])
+                path.append(leaf_cert)
+                self.paths[leaf_cert.subject] = path
 
+        if len(path) == 0:
+            logger.debug("No Intermediate Certs")
+        else:
+            logger.debug("Intermediate certs %s", ":".join(str([cert for cert in path])))
         return path
 
     def build_graph(self):
@@ -88,5 +99,17 @@ class CertificateGraph:
 
         logger.info("Discovered %s certs", len(processed_certs))
 
-    def report(self) -> None:
-        pass
+    def report(self) -> str:
+        report = {}
+        report["anchor"] = self.root.identifier
+        report["issuers"] = []
+        for node in self.nodes:
+            report["issuers"].append(node)
+        report["valid-certs"] = []
+        for cert in self.edges.values():
+            report["valid-certs"].append(cert.report_entry())
+        report["bad-certs"] = []
+        for cert in self.failed:
+            report["bad-certs"].append(cert.report_entry())
+
+        return json.dumps(report)
