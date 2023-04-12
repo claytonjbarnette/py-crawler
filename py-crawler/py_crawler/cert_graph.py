@@ -18,6 +18,11 @@ class CertificateGraph:
         # set the root to the trust anchor
         self.root = anchor
 
+        # We add a special status for the root, since the "get_status" function doesn't make sense for
+        # the trust anchor
+        self.root.status = GsaCert.Status.VALID
+        self.root.pathbuilder_result = {"result": "true", "details": "Trust Anchor"}
+
         # Initalize the empty data structures
         self.nodes = set()
         self.edges = {}
@@ -31,19 +36,28 @@ class CertificateGraph:
         path: List[GsaCert] = []
 
         # See if we already have a path for this CA
-        if leaf_cert.subject in self.paths.keys():
-            path = self.paths[leaf_cert.subject]
+        if leaf_cert.identifier in self.paths.keys():
+            path = self.paths[leaf_cert.identifier]
         # If not, we'll have to create the path
         else:
             # If you call the function with the root, or one of the root's immediate children,
             # the list of intermediates is empty.
-            if leaf_cert.subject == self.root.subject:
+            if leaf_cert.identifier == self.root.identifier:
                 # If you call the function with the root cert itself, we return an empty list
+                # The anchor is not part of the path, so there is no need to store it here
                 pass
-            elif leaf_cert.issuer == self.root.subject:
+            elif (
+                leaf_cert.issuer == self.root.subject
+                and leaf_cert.cert.authority_key_identifier_value
+                == self.root.cert.key_identifier_value
+            ):
                 # If you call the function with one of the root cert's immediate children, we
-                # register the child as an intermediate but return an empty list
-                self.paths[leaf_cert.subject] = [leaf_cert]
+                # register the child by key ID as an intermediate but return an empty list
+                if leaf_cert.cert.key_identifier_value is not None:
+                    self.paths[leaf_cert.cert.key_identifier_value] = [leaf_cert]
+                else:
+                    # No Key ID so we'll use subject name
+                    self.paths[leaf_cert.cert.subject] = [leaf_cert]
             else:
                 # Otherwise, create a new list with the leaf_cert appended to the parent cert's intermediate list.
                 # Graphs are always built from the root out, so for any cert submitted, the list of
@@ -83,8 +97,9 @@ class CertificateGraph:
                     )
 
                 if cert_to_process.status == GsaCert.Status.VALID:
-                    logger.debug("Certificate valid - fetching certificates from SIA")
+                    logger.info("Certificate valid - fetching certificates from SIA")
                     self.nodes.add(cert_to_process.issuer)
+                    self.nodes.add(cert_to_process.subject)
                     self.edges[cert_to_process.identifier] = cert_to_process
                     for next_cert in cert_to_process.get_sia_certs():
                         certs_to_process.append(next_cert)
@@ -101,7 +116,7 @@ class CertificateGraph:
 
     def report(self) -> str:
         report = {}
-        report["anchor"] = self.root.identifier
+        report["anchor"] = self.root.issuer
         report["issuers"] = []
         for node in self.nodes:
             report["issuers"].append(node)

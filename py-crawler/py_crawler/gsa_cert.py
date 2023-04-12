@@ -15,6 +15,8 @@ import os
 import base64
 import json
 
+from certs_to_p7b import P7C
+
 logger = logging.getLogger("py_crawler.gsa_cert")
 
 
@@ -27,23 +29,25 @@ class XiaResult:
 
 class GsaCert:
     class Status(StrEnum):
-        VALID = "valid"
-        INVALID = "invalid"
-        REVOKED = "revoked"
-        REVOCATION_CHECK_FAILED = "check_failed"
+        VALID = "Certificate Valid and Chains to Common"
+        INVALID = "Certificate Invalid"
+        REVOKED = "Certificate Revoked"
+        REVOCATION_CHECK_FAILED = "Revocation Check Failed"
+        NO_PATH = "Certificate Valid, but no Path to Common"
         UNCHECKED = "unchecked"
+        OTHER = "Status set to other because we didn't handle an error condition well"
 
     cert: x509.Certificate
     cert_dict: OrderedDict[str, Any]
     issuer: str
     subject: str
     status: Status
+    pathbuilder_result: Dict[str, str]
     sia_results: List[XiaResult]
     aia_results: List[XiaResult]
     path: List["GsaCert"]  # The list of certs in the path to common
 
     def get_status(self, intermediate_certs: List["GsaCert"]) -> Status:
-        p7c_obj: Optional[cms.ContentInfo] = None
         script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
         logger.debug("Getting Certificate Status")
         # If the certificate is expired or not yet valid, don't bother checking anything else
@@ -53,39 +57,12 @@ class GsaCert:
             and self.cert_dict["validity"]["not_after"] < datetime.now(tz=timezone.utc)
         ):
             self.status = self.Status.INVALID
+            self.pathbuilder_result = {
+                "result": "false",
+                "details": "certificate expired or not yet valid",
+            }
         else:
             # If the certificate is valid from a time perspective, run pathbuilder
-
-            # First, create a cms SignedInfo object from the certs passed in as "intermediate certs"
-            if len(intermediate_certs) > 0:
-                logger.debug("Intermediate Certs passed to get_status for %s:", self)
-
-                p7c_certs = cms.CertificateSet()
-
-                for gsaCert in intermediate_certs:
-                    p7c_certs.append(cms.CertificateChoices({"certificate": gsaCert.cert}))
-
-                p7c_input = cms.SignedData(
-                    {
-                        "version": "v1",
-                        "digest_algorithms": [],
-                        "encap_content_info": {
-                            "content_type": "data",
-                            "content": b"",
-                        },
-                        "certificates": p7c_certs,
-                        "signer_infos": [],
-                    }
-                )
-
-                p7c_obj = cms.ContentInfo(
-                    {
-                        "content_type": "signed_data",
-                        "content": p7c_input,
-                    }
-                )
-
-            # Run pathbuilder
             logger.debug("Certificate within validity period, running pathbuilder")
 
             # Create arg list for pathbuilder
@@ -93,20 +70,26 @@ class GsaCert:
                 "java",
                 "-jar",
                 str(script_directory / "resources" / "pathbuilder-1.2.jar"),
+                "--noshift",
                 "--output",
                 "short",
                 "--base64",
                 base64.b64encode(self.cert.dump()),
             ]
 
-            # Add intermediate certs if provided
-            if p7c_obj is not None:
-                pathbuilder_args.extend(
-                    [
-                        "--bundle-base64",
-                        base64.b64encode(p7c_obj.dump()),
-                    ]
-                )
+            # Create a cms SignedInfo object from the certs passed in as "intermediate certs" if any
+            if len(intermediate_certs) > 0:
+                logger.debug("Intermediate Certs passed to get_status for %s:", self)
+
+                p7c_obj = P7C(intermediate_certs=intermediate_certs).get_bytes()
+
+                if len(p7c_obj) > 0:
+                    pathbuilder_args.extend(
+                        [
+                            "--bundle-base64",
+                            base64.b64encode(p7c_obj),
+                        ]
+                    )
             logger.debug("Pathbuilder command arguments %s", pathbuilder_args)
 
             pathbuilder_process = None
@@ -120,25 +103,35 @@ class GsaCert:
                     encoding="utf8",
                 )
             except subprocess.CalledProcessError as cpe:
-                logger.critical("Calling pathbuilder failed: %s", cpe.stderr)
+                error = f"Calling pathbuilder failed: {cpe.stderr}"
+                logger.critical(error)
                 self.status = self.Status.REVOCATION_CHECK_FAILED
+                self.pathbuilder_result = {"result": "false", "details": error}
             except subprocess.TimeoutExpired:
-                logger.critical("Process timed out.")
+                error = "Pathbuilder timed out"
+                logger.critical(error)
                 self.status = self.Status.REVOCATION_CHECK_FAILED
+                self.pathbuilder_result = {"result": "false", "details": error}
 
             if pathbuilder_process is not None:
                 logger.debug(pathbuilder_process.stdout)
                 pathbuilder_status = json.loads(pathbuilder_process.stdout)
+                self.pathbuilder_result = pathbuilder_status
 
                 # If the path verification was successful, save the original cert list to the "path" field
                 self.path = intermediate_certs
 
-                if pathbuilder_status["result"] == "True":
+                if pathbuilder_status["result"] == "true":
                     self.status = self.Status.VALID
-                elif pathbuilder_status["result"] == "False":
-                    self.status = self.Status.REVOKED
+                elif pathbuilder_status["result"] == "false":
+                    if pathbuilder_status["details"] == "Unable to build Path":
+                        self.status = self.Status.NO_PATH
+                    elif pathbuilder_status["details"] == "End Entity Cert expired or not valid":
+                        self.status = self.Status.INVALID
+                    else:
+                        self.status = self.Status.OTHER
 
-            return self.status
+        return self.status
 
     def __init__(
         self, input_bytes: bytes = b"", cert_dict: OrderedDict[str, Any] = OrderedDict()
@@ -363,7 +356,17 @@ class GsaCert:
         report_entry = {}
         report_entry["subject"] = self.subject
         report_entry["issuer"] = self.issuer
+        report_entry["serial-number"] = self.cert.serial_number
+        if self.cert.authority_key_identifier is not None:
+            report_entry["akid"] = " ".join(
+                "{:02x}".format(byte) for byte in self.cert.authority_key_identifier
+            )
+        if self.cert.key_identifier is not None:
+            report_entry["skid"] = " ".join(
+                "{:02x}".format(byte) for byte in self.cert.key_identifier
+            )
         report_entry["status"] = self.status
+        report_entry["pathbuilder-result"] = self.pathbuilder_result
         if self.status == self.Status.VALID:
             if len(self.path) > 0:
                 report_entry["path-to-common"] = []
@@ -375,5 +378,10 @@ class GsaCert:
                 report_entry["sia-entries"][result.url] = []
                 for cert in result.certs:
                     report_entry["sia-entries"][result.url].append(cert.subject)
+        elif self.status == self.Status.INVALID:
+            report_entry["validity-dates"] = {
+                "not-before": str(self.cert.not_valid_before),
+                "not-after": str(self.cert.not_valid_after),
+            }
 
         return report_entry
