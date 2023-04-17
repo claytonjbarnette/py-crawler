@@ -1,9 +1,11 @@
 from importlib import resources
-from gsa_cert import GsaCert
-from cert_graph import CertificateGraph
+from gsa_certificate import GsaCertificate
+from certificate_graph import CertificateGraph
+from graph_xml import GraphXML
 from typing import List, Dict
 import logging
 from datetime import datetime
+from xml.etree import ElementTree
 
 from certs_to_p7b import P7C
 
@@ -13,7 +15,7 @@ def main():
     logger = logging.getLogger("py_crawler")
     logger.setLevel(logging.DEBUG)
     console_logger = logging.StreamHandler()
-    console_logger.setLevel(logging.INFO)
+    console_logger.setLevel(logging.DEBUG)
     logger.addHandler(console_logger)
     logger.debug("logging DEBUG messages")
 
@@ -23,10 +25,9 @@ def main():
     with common_file.open(mode="rb") as common_file:
         common_bytes = common_file.read()
 
-    anchor = GsaCert(input_bytes=common_bytes)
-    # by definition the trust anchor is considered VALID
-    anchor.status = GsaCert.Status.VALID
+    anchor = GsaCertificate(input_bytes=common_bytes)
 
+    # Create a graph
     common_graph = CertificateGraph(anchor=anchor)
     common_graph.build_graph()
 
@@ -37,19 +38,19 @@ def main():
         report.write(common_graph.report())
 
     # Next, produce a P7C
-    logger.info("Creating P7C file")
+    logger.info("Creating P7B file")
     common_p7b = P7C(list(common_graph.edges.values()))
+
     with open("CACertificatesValidatingToFederalCommonPolicyG2.p7b", "wb") as common_p7b_file:
-        common_p7b_file.write(common_p7b.get_bytes())
+        common_p7b_file.write(common_p7b.get_p7b())
 
     # Finally, build the gexf output
-    logger.info("building gexf")
-    nodes = common_graph.nodes
-    edges = list(common_graph.edges.values())
-    # TODO START HERE
-    with open("common_graph.gexf", "w") as graph_file:
-        # Write file
-        pass
+    logger.info("building gexf - TODO")
+    graph_xml = GraphXML(cert_graph=common_graph).tostring()
+    if graph_xml is not None:
+        with open("common_graph.gexf", "w") as graph_file:
+            # Write file
+            graph_file.write(graph_xml)
 
 
 if __name__ == "__main__":

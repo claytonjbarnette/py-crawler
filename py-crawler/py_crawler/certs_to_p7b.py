@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import List
 
-from asn1crypto import cms
+from asn1crypto import cms, pem
 
-import gsa_cert
+import gsa_certificate
 
 
 class P7C:
-    intermediate_certs: List[gsa_cert.GsaCert]
+    intermediate_certs: List[gsa_certificate.GsaCertificate]
 
-    def __init__(self, intermediate_certs: List[gsa_cert.GsaCert]) -> None:
+    def __init__(self, intermediate_certs: List[gsa_certificate.GsaCertificate]) -> None:
         self.intermediate_certs = intermediate_certs
 
     def get_bytes(self) -> bytes:
@@ -43,3 +43,6 @@ class P7C:
         p7c_bytes = p7c_obj.dump()
 
         return p7c_bytes
+
+    def get_p7b(self) -> bytes:
+        return pem.armor(type_name="PKCS7", der_bytes=self.get_bytes(), headers=None)
