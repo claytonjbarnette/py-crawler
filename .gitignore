@@ -1,4 +1,4 @@
 crawler-*
-secrets/accesstoken
+**/secrets/accesstoken
 logs/**
 reports/**
