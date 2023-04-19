@@ -1,8 +1,11 @@
-from gsa_certificate import GsaCertificate
-from certificate_path import CertificatePath
-import logging
-from typing import List, Dict, Set, Tuple, Optional
+from __future__ import annotations
+
 import json
+import logging
+from typing import Dict, List, Optional, Set, Tuple
+
+from .certificate_path import CertificatePath
+from .gsa_certificate import GsaCertificate
 
 logger = logging.getLogger("py_crawler.cert_graph")
 

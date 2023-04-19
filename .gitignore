@@ -1,1 +1,4 @@
 crawler-*
+secrets/accesstoken
+logs/**
+reports/**

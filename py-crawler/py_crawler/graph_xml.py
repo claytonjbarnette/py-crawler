@@ -1,11 +1,16 @@
-from xml.etree import ElementTree
+from __future__ import annotations
+
 from datetime import date
-from certificate_graph import CertificateGraph
 from typing import Optional
+from xml.etree import ElementTree
+
+from .certificate_graph import CertificateGraph
+from .gsa_certificate import GsaCertificate
 
 
 class GraphXML:
-    graph: ElementTree.ElementTree
+    xml_graph: ElementTree.ElementTree
+    cert_graph: CertificateGraph
 
     # Useful constants
     NODE_SIZE = "10.0"
@@ -18,86 +23,126 @@ class GraphXML:
     EDGE_COLOR_B = "153"
 
     XMLNS_DICT = {
-        "xmlns": "http://www.gexf.net/1.2draft",
-        "version": "1.2",
-        "xmlns:viz": "http://www.gexf.net/1.2draft/viz",
+        "xmlns": "http://gexf.net/1.3",
+        "xmlns:viz": "http://gexf.net/1.3/viz",
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-        "xsi:schemaLocation": "http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd",
+        "xsi:schemaLocation": "http://gexf.net/1.3 http://gexf.net/1.3/gexf.xsd",
+        "version": "1.3",
     }
 
     GEXF_TYPE = "directed"
     GEXF_MODE = "static"
 
+    def write_node(self, node: GsaCertificate, node_names: list[str]) -> ElementTree.Element:
+        node_id = node.subject
+        # The label is the CN, which is everything after the first colon, but before the first comma
+        node_label = (node.subject.split(sep=":")[1]).split(",")[0]
+        node_element = ElementTree.Element("node", attrib={"id": node_id, "label": node_label})
+        node_element.append(ElementTree.Element("size", attrib={"value": self.NODE_SIZE}))
+        node_element.append(
+            ElementTree.Element(
+                "color",
+                attrib={
+                    "r": self.NODE_COLOR_R,
+                    "g": self.NODE_COLOR_G,
+                    "b": self.NODE_COLOR_B,
+                },
+            )
+        )
+
+        if len(node.sia_results) > 0:
+            sub_nodes_element = ElementTree.SubElement(node_element, "nodes")
+            for sia_result in node.sia_results:
+                for cert in sia_result.certs:
+                    if cert.subject not in node_names:
+                        node_names.append(cert.subject)  # Track these to avoid duplicates
+                        sub_nodes_element.append(self.write_node(cert, node_names=node_names))
+
+        return node_element
+
     def __init__(self, cert_graph: CertificateGraph) -> None:
+        self.cert_graph = cert_graph
+        # Root
         root_element = ElementTree.Element("gexf", attrib=self.XMLNS_DICT)
-        meta_element = ElementTree.SubElement(
-            root_element,
+
+        # Metadata
+        meta_element = ElementTree.Element(
             "meta",
             attrib={"lastmodifieddate": date.isoformat(date.today())},
         )
-        creator_element = ElementTree.SubElement(meta_element, "creator")
+
+        # Creator
+        creator_element = ElementTree.Element("creator")
         creator_element.text = "py-crawler"
+        meta_element.append(creator_element)
 
-        description_element = ElementTree.SubElement(meta_element, "description")
+        # Description
+        description_element = ElementTree.Element("description")
+        description_element.text = f"Created by Py-Crawler on {date.today().isoformat()}"
+        meta_element.append(description_element)
 
-        graph_element = ElementTree.SubElement(
-            root_element,
+        # Attach completed metadata to root
+        root_element.append(meta_element)
+
+        # Create the Graph element under the root
+        graph_element = ElementTree.Element(
             "graph",
             attrib={"defaultedgetype": self.GEXF_TYPE, "mode": self.GEXF_MODE},
         )
 
-        nodes_element = ElementTree.SubElement(graph_element, "nodes")
+        # Create the nodes
+        nodes_element = ElementTree.Element("nodes")
+        nodes_element.append(self.write_node(self.cert_graph.anchor, node_names=[]))
 
-        for node in cert_graph.nodes:
-            node_id = node
-            # The label is the CN, which is everything after the first colon, but before the first comma
-            node_label = (node.split(sep=":")[1]).split(",")[0]
-            node_element = ElementTree.SubElement(
-                nodes_element, "node", attrib={"id": node_id, "label": node_label}
-            )
-            node_attvalues = ElementTree.SubElement(node_element, "attvalues")
-            node_size = ElementTree.SubElement(
-                node_element, "viz:size", attrib={"value": self.NODE_SIZE}
-            )
-            node_color = ElementTree.SubElement(
-                node_element,
-                "viz:color",
-                attrib={
-                    "r": self.NODE_COLOR_R,
-                    "g": self.NODE_COLOR_G,
-                    "b": self.NODE_COLOR_B,
-                },
-            )
+        # Add the nodes to the graph
+        graph_element.append(nodes_element)
 
-        edges_element = ElementTree.SubElement(graph_element, "edges")
+        # Create the edges
+        edges_element = ElementTree.Element("edges")
 
+        edge_set: set[tuple[str, str]] = set()
+        edges_dict: dict[str, dict[str, str]] = {}
         for edge_key in cert_graph.edges:
             edge_cert = cert_graph.edges[edge_key]
             edge_label = (edge_cert.subject.split(sep=":")[1]).split(",")[0]
-            edge_element = ElementTree.SubElement(
-                edges_element,
-                "edge",
-                attrib={
+            if (edge_cert.issuer, edge_cert.subject) not in edge_set:
+                edges_dict[edge_label] = {
                     "id": edge_cert.subject,
                     "source": edge_cert.issuer,
                     "target": edge_cert.subject,
                     "label": edge_label,
-                },
+                    "weight": "1.0",
+                }
+            else:
+                edges_dict[edge_label]["weight"] = str(
+                    float(edges_dict[edge_label]["weight"]) + 1.0
+                )
+
+        for label in edges_dict:
+            edge_element = ElementTree.SubElement(
+                edges_element,
+                "edge",
+                attrib=edges_dict[label],
             )
 
-            edge_color_element = ElementTree.SubElement(
-                edge_element,
-                "viz:color",
-                attrib={
-                    "r": self.NODE_COLOR_R,
-                    "g": self.NODE_COLOR_G,
-                    "b": self.NODE_COLOR_B,
-                },
+            edge_element.append(
+                ElementTree.Element(
+                    "color",
+                    attrib={
+                        "r": self.NODE_COLOR_R,
+                        "g": self.NODE_COLOR_G,
+                        "b": self.NODE_COLOR_B,
+                    },
+                )
             )
 
-            edge_attvalues_element = ElementTree.SubElement(edge_element, "attvalues")
+        # Add the edges to the graph
+        graph_element.append(edges_element)
 
-        self.graph = ElementTree.ElementTree(root_element)
+        # Add the graph to the root
+        root_element.append(graph_element)
+
+        self.xml_graph = ElementTree.ElementTree(root_element)
 
     def tostring(self) -> Optional[str]:
-        return ElementTree.tostring(self.graph.getroot(), encoding="unicode")
+        return ElementTree.tostring(self.xml_graph.getroot(), encoding="unicode")

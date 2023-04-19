@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, TYPE_CHECKING
 
 from asn1crypto import cms, pem
 
-import gsa_certificate
+if TYPE_CHECKING:
+    from .gsa_certificate import GsaCertificate
 
 
 class P7C:
-    intermediate_certs: List[gsa_certificate.GsaCertificate]
+    intermediate_certs: List[GsaCertificate]
 
-    def __init__(self, intermediate_certs: List[gsa_certificate.GsaCertificate]) -> None:
+    def __init__(self, intermediate_certs: List[GsaCertificate]) -> None:
         self.intermediate_certs = intermediate_certs
 
     def get_bytes(self) -> bytes:

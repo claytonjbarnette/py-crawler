@@ -1,19 +1,23 @@
-from asn1crypto import x509, pem, cms
-from typing import Optional, List, OrderedDict, Any, Dict
+from __future__ import annotations
+
+import base64
+import json
 import logging
-import requests
-import ldap3
-from ldap3.utils import uri as ldap_uri
+import os
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
-import subprocess
 from pathlib import Path
-import os
-import base64
-import json
+from typing import Any, Dict, List, Optional, OrderedDict, TYPE_CHECKING
 
-from certificate_path import CertificatePath
+import ldap3
+import requests
+from asn1crypto import cms, pem, x509
+from ldap3.utils import uri as ldap_uri
+
+if TYPE_CHECKING:
+    from .certificate_path import CertificatePath
 
 logger = logging.getLogger("py_crawler.gsa_cert")
 
@@ -65,7 +69,7 @@ class GsaCertificate:
             pathbuilder_args = [
                 "java",
                 "-jar",
-                str(script_directory / "resources" / "pathbuilder-1.2.jar"),
+                str(script_directory / "data" / "pathbuilder-1.2.jar"),
                 "--noshift",
                 "--output",
                 "short",

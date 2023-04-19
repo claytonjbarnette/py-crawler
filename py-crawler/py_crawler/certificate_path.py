@@ -1,7 +1,12 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-import gsa_certificate
-from certs_to_p7b import P7C
+from typing import TYPE_CHECKING
+
+from .certs_to_p7b import P7C
+
+if TYPE_CHECKING:
+    from .gsa_certificate import GsaCertificate
 
 
 @dataclass
@@ -14,7 +19,7 @@ class CertificatePath:
     # a list of the subject IDs in the path, so that we can pretty print the path
     description: tuple[str]
     # A list of the certs in the path
-    certs: tuple[gsa_certificate.GsaCertificate]
+    certs: tuple[GsaCertificate]
     # A p7c representation to help with certificate validation
     p7c: bytes = field(init=False)
 
