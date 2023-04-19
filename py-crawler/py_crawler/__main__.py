@@ -1,18 +1,21 @@
-import logging
-import os
+import logging, os, shutil
 from datetime import datetime
 from importlib import resources
 from pathlib import Path
-from github import Github, Repository, ContentFile
+from dulwich import repo, errors
+from dulwich.client import HttpGitClient
 
 from .certificate_graph import CertificateGraph
 from .certs_to_p7b import P7C
 from .graph_xml import GraphXML
 from .gsa_certificate import GsaCertificate
-from . import data
+from . import data, secrets
 
 
 def main():
+    P7B_FILE_NAME = "CACertificatesValidatingToFederalCommonPolicyG2.p7b"
+    GEXF_FILE_NAME = "common_graph.gexf"
+
     # Identify and create output directories
     if "OUTPUT_DIR" in os.environ:
         output_path = Path(os.environ["OUTPUT_DIR"])
@@ -31,12 +34,6 @@ def main():
     if not report_path.exists():
         Path.mkdir(report_path)
 
-    # Directory to pull the playbooks repo into
-    if "PLAYBOOKS_DIR" in os.environ:
-        playbooks_path = Path(os.environ["PLAYBOOKS_DIR"])
-    else:
-        playbooks_path = Path(Path.cwd().anchor, "playbooks")
-
     logger = logging.getLogger("py_crawler")
     logger.setLevel(logging.DEBUG)
     file_logger = logging.FileHandler(Path(log_path, "debug_log-" + str(datetime.now()) + ".log"))
@@ -54,7 +51,7 @@ def main():
 
     # Create a graph
     common_graph = CertificateGraph(anchor=anchor)
-    common_graph.build_graph()
+    # common_graph.build_graph()
 
     # First lets create a report of the certs discovered
     logger.info("Creating report for this crawler run.")
@@ -64,29 +61,45 @@ def main():
 
     # Next, produce a P7C
     logger.info("Creating P7B file")
-    common_p7b = P7C(list(common_graph.edges.values()))
+    # common_p7b = P7C(list(common_graph.edges.values()))
 
-    with open("CACertificatesValidatingToFederalCommonPolicyG2.p7b", "wb") as common_p7b_file:
-        common_p7b_file.write(common_p7b.get_p7b())
+    with open(Path(output_path, P7B_FILE_NAME), "wb") as common_p7b_file:
+        pass
+        # common_p7b_file.write(common_p7b.get_p7b())
 
     # build the gexf output
     logger.info("building gexf")
     graph_xml = GraphXML(cert_graph=common_graph).tostring()
     if graph_xml is not None:
-        with open(Path(output_path, "common_graph.gexf"), "w") as graph_file:
+        with open(Path(output_path, GEXF_FILE_NAME), "w") as graph_file:
             # Write file
             graph_file.write(graph_xml)
 
-    # Grab the playbooks repo from github
-    github = Github()
-    playbooks_repo = github.get_repo("Credentive-Sec/ficam-playbooks")
-    contents = playbooks_repo.get_contents("")
-    while type(contents) == list and contents:
-        file_content = contents.pop(0)
-        if file_content.type == "dir":
-            contents.extend(playbooks_repo.get_contents(file_content.path))
-        else:
-            playbooks_repo.get_contents(file_content.path)
+    # Open the playbooks repo. If it doesn't exist, clone it.
+    try:
+        playbooks_repo = repo.Repo(str(playbooks_path))
+    except errors.NotGitRepository as ngr:
+        logger.info("Git Repository not found. Cloning from github")
+        playbooks_repo = git.clone(
+            source="https://github.com/Credentive-Sec/ficam-playbooks.git",
+            target=playbooks_path,
+        )
+
+    # Create a branch for the current run
+    branch_name = f"{str(datetime.now().month)}{str(datetime.now().day)}-fpki-graph-update"
+    git.branch_create(repo=playbooks_repo, name=branch_name)
+
+    # Copy the P7B and gexf into the directory, and stage the files
+    playbooks_repo.stage(
+        shutil.copy(Path(output_path, P7B_FILE_NAME), Path(playbooks_path, "_fpki", "tools"))
+    )
+    playbooks_repo.stage(
+        shutil.copy(Path(output_path, GEXF_FILE_NAME), Path(playbooks_path, "_fpki", "tools"))
+    )
+
+    playbooks_repo.do_commit(message=b"automatic crawler updates", committer=b"Py-Crawler")
+
+    git.push(repo=playbooks_repo)
 
 
 if __name__ == "__main__":

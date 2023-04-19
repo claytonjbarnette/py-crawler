@@ -15,6 +15,7 @@ RUN ${POETRY_VENV}/bin/pip install poetry==${POETRY_VERSION}
 # Configure the environment for py-crawler
 FROM poetry-base as py-crawler-base
 RUN ["apt", "-y", "install", "openjdk-17-jre-headless"]
+RUN ["apt", "-y", "install", "git"]
 COPY py-crawler /py-crawler
 COPY secrets /py-crawler/secrets
 
@@ -33,4 +34,4 @@ RUN poetry install --no-interaction -no-cache
 ENV PLAYBOOKS_DIR="/playbooks"
 ENV OUTPUT_DIR="/output"
 
-CMD [ "python", "-m", "certreport", "/certs" ]
+CMD [ "/py_crawler/fpki-graph-updates.sh" ]
