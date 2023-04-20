@@ -1,4 +1,16 @@
 #------------------------------------------------------
+# Verify Environment
+#------------------------------------------------------
+if ! test -f /py-crawler/secrets; then
+    # The secrets file does not exist. Bail
+    echo "No Secrets file detected. See the project README.md for instructions"
+    exit
+fi
+
+
+
+
+#------------------------------------------------------
 # Setup important variables
 #------------------------------------------------------
 # Todays date, for git submissions
