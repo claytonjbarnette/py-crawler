@@ -1,18 +1,8 @@
 #------------------------------------------------------
-# Verify Environment
-#------------------------------------------------------
-if ! test -f /py-crawler/py_crawler/secrets/accesstoken; then
-    # The secrets file does not exist. Bail
-    echo "No Secrets file detected. See the project README.md for instructions"
-    exit
-fi
-
-
-
-
-#------------------------------------------------------
 # Setup important variables
 #------------------------------------------------------
+# SCRIPT DIRECTORY
+SCRIPT_DIRECTORY=`pwd`
 # Todays date, for git submissions
 TODAY=`date +%m%d`
 # Directory where we will install the Playbooks site from github
@@ -24,15 +14,15 @@ PLAYBOOKS_REPO="Credentive-Sec/ficam-playbooks"
 # GIT USERNAME
 GIT_USERNAME="RS-Credentive"
 # Access Token
-GIT_TOKEN=`cat /py-crawler/py_crawler/secrets/accesstoken`
+GIT_TOKEN=`cat $SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken`
 # REPO URL
-PLAYBOOKS_REPO_URL="https://$GIT_USERNAME:$GIT_TOKEN@github.com/$PLAYBOOKS_REPO"
-# SCRIPT DIRECTORY
-SCRIPT_DIRECTORY="/py-crawler"
+PLAYBOOKS_REPO_URL="https://$GIT_TOKEN@github.com/$PLAYBOOKS_REPO"
+
 
 #------------------------------------------------------
-# Run py_crawlker
+# Run py_crawler
 #------------------------------------------------------
+poetry shell
 python -m py_crawler
 
 #------------------------------------------------------
@@ -70,18 +60,18 @@ fi
     git commit -m "automatic crawler update"
     git push --all
 
-    # Authenticating GH with a token
-    echo "Authenticating GH CLI"
-    gh auth login --with-token < /github_token
+    # # Authenticating GH with a token
+    # echo "Authenticating GH CLI"
+    # #gh auth login --with-token < /github_token
 
-    # Create Issue, record the output to a variable
-    echo "Creating Issue"
-    ISSUE=$(gh issue create --repo "$PLAYBOOKS_REPO" --title "$TODAY FPKI Graph Update"  --body "Automatically Created")
+    # # Create Issue, record the output to a variable
+    # echo "Creating Issue"
+    # #ISSUE=$(gh issue create --repo "$PLAYBOOKS_REPO" --title "$TODAY FPKI Graph Update"  --body "Automatically Created")
 
-    # Parse out the issue number
-    ISSUE_NUM=$(echo $ISSUE | cut -f 7 -d "/")
+    # # Parse out the issue number
+    # ISSUE_NUM=$(echo $ISSUE | cut -f 7 -d "/")
 
-    # Open a PR linked to the Issue
-    echo "Creating PR"
-    gh pr create --repo "$PLAYBOOKS_REPO" --base "staging" --title "$TODAY Fpki Graph Update" --body "Linked to Issue #$issue_num"
+    # # Open a PR linked to the Issue
+    # echo "Creating PR"
+    # #gh pr create --repo "$PLAYBOOKS_REPO" --base "staging" --title "$TODAY Fpki Graph Update" --body "Linked to Issue #$issue_num"
 )

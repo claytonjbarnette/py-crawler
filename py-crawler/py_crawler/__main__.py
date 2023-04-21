@@ -49,7 +49,7 @@ def main():
 
     # Create a graph
     common_graph = CertificateGraph(anchor=anchor)
-    # common_graph.build_graph()
+    common_graph.build_graph()
 
     # First lets create a report of the certs discovered
     logger.info("Creating report for this crawler run.")
@@ -72,32 +72,6 @@ def main():
         with open(Path(output_path, GEXF_FILE_NAME), "w") as graph_file:
             # Write file
             graph_file.write(graph_xml)
-
-    # Open the playbooks repo. If it doesn't exist, clone it.
-    try:
-        playbooks_repo = repo.Repo(str(playbooks_path))
-    except errors.NotGitRepository as ngr:
-        logger.info("Git Repository not found. Cloning from github")
-        playbooks_repo = git.clone(
-            source="https://github.com/Credentive-Sec/ficam-playbooks.git",
-            target=playbooks_path,
-        )
-
-    # Create a branch for the current run
-    branch_name = f"{str(datetime.now().month)}{str(datetime.now().day)}-fpki-graph-update"
-    git.branch_create(repo=playbooks_repo, name=branch_name)
-
-    # Copy the P7B and gexf into the directory, and stage the files
-    playbooks_repo.stage(
-        shutil.copy(Path(output_path, P7B_FILE_NAME), Path(playbooks_path, "_fpki", "tools"))
-    )
-    playbooks_repo.stage(
-        shutil.copy(Path(output_path, GEXF_FILE_NAME), Path(playbooks_path, "_fpki", "tools"))
-    )
-
-    playbooks_repo.do_commit(message=b"automatic crawler updates", committer=b"Py-Crawler")
-
-    git.push(repo=playbooks_repo)
 
 
 if __name__ == "__main__":

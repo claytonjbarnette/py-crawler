@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from datetime import date
 from typing import Optional
 from xml.etree import ElementTree
@@ -32,6 +34,30 @@ class GraphXML:
 
     GEXF_TYPE = "directed"
     GEXF_MODE = "static"
+
+    def get_node_location(
+        self, node: GsaCertificate, ring_id: int, ring_index: int, ring_size: int
+    ) -> ElementTree.Element:
+        x_location = y_location = 0
+
+        if ring_index == 0 and ring_size == 0:
+            # This is the center, leave the x and y location as is
+            pass
+        else:
+            radius = 100 * ring_id
+            angle = math.ceil((360 / ring_size) * ring_index)
+
+            x_location = math.ceil(math.cos(angle))
+            y_location = math.ceil(math.sin(angle))
+
+        return ElementTree.Element(
+            "position",
+            attrib={
+                "x": str(x_location),
+                "y": str(y_location),
+                "z": "0",
+            },
+        )
 
     def write_node(self, node: GsaCertificate, node_names: list[str]) -> ElementTree.Element:
         node_id = node.subject

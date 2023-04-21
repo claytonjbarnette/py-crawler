@@ -12,6 +12,9 @@ RUN ${POETRY_VENV}/bin/pip install poetry==${POETRY_VERSION}
 
 # Configure the environment for py-crawler
 FROM poetry-base as py-crawler-base
+# COPY poetry to app image and set path
+COPY --from=poetry-base ${POETRY_VENV} ${POETRY_VENV}
+ENV PATH="${PATH}:${POETRY_VENV}/bin"
 # Install updates and required software
 RUN ["apt", "-y", "update"]
 # Install the JRE
@@ -27,14 +30,10 @@ RUN ["curl", "-L", "https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27
 # Extract the "gh" command to /usr/bin
 # RUN ["dpkg", "-i", "/tmp/gh.deb"]
 
-COPY py-crawler /py-crawler
+COPY py-crawler /workspaces/py-crawler/py-crawler
 #COPY secrets /py-crawler/secrets
 
-# COPY poetry to app image and set path
-COPY --from=poetry-base ${POETRY_VENV} ${POETRY_VENV}
-ENV PATH="${PATH}:${POETRY_VENV}/bin"
-
-WORKDIR /py-crawler
+WORKDIR /workspaces/py-crawler
 
 # Check configuration
 RUN poetry check
@@ -45,4 +44,4 @@ RUN poetry install --no-interaction --no-cache
 ENV PLAYBOOKS_DIR="/playbooks"
 ENV OUTPUT_DIR="/output"
 
-CMD [ "sh", "/py-crawler/fpki-graph-update.sh" ]
+CMD [ "sh", "/workspaces/py-crawler/fpki-graph-update.sh" ]
