@@ -2,8 +2,6 @@ import logging, os, shutil
 from datetime import datetime
 from importlib import resources
 from pathlib import Path
-from dulwich import repo, errors
-from dulwich.client import HttpGitClient
 
 from .certificate_graph import CertificateGraph
 from .certs_to_p7b import P7C
