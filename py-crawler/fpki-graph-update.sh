@@ -1,7 +1,7 @@
 #------------------------------------------------------
 # Verify Environment
 #------------------------------------------------------
-if ! test -f /py-crawler/secrets; then
+if ! test -f /py-crawler/py_crawler/secrets/accesstoken; then
     # The secrets file does not exist. Bail
     echo "No Secrets file detected. See the project README.md for instructions"
     exit
@@ -24,7 +24,7 @@ PLAYBOOKS_REPO="Credentive-Sec/ficam-playbooks"
 # GIT USERNAME
 GIT_USERNAME="RS-Credentive"
 # Access Token
-GIT_TOKEN=`cat /py-crawler/secrets`
+GIT_TOKEN=`cat /py-crawler/py_crawler/secrets/accesstoken`
 # REPO URL
 PLAYBOOKS_REPO_URL="https://$GIT_USERNAME:$GIT_TOKEN@github.com/$PLAYBOOKS_REPO"
 # SCRIPT DIRECTORY
