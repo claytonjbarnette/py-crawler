@@ -21,14 +21,14 @@ RUN ["apt", "-y", "install", "git"]
 # Install curl
 RUN ["apt", "-y", "install", "curl"]
 # Set the $ARCH variable to the architecture of the CPU - to run on multiple cpu types
-RUN ["export", "ARCH=`dpkg --print-architecture`"]
+# RUN ["export", "ARCH=`dpkg --print-architecture`"]
 # Download GH CLI from github
-RUN ["curl", "-Lo", "gh.tgz", "https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27.0_linux_$ARCH.deb"]
+RUN ["curl", "-L", "https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27.0_linux_`dpkg --print-architecture`.deb", "--output", "/tmp/gh.deb"]
 # Extract the "gh" command to /usr/bin
-RUN ["tar" "-tvf" "gh.tgz" "--strip-components=2"  "-C" "/usr/bin" "gh_2.27.0_linux_$ARCH/bin/gh"]
+# RUN ["dpkg", "-i", "/tmp/gh.deb"]
 
 COPY py-crawler /py-crawler
-COPY secrets /py-crawler/secrets
+#COPY secrets /py-crawler/secrets
 
 # COPY poetry to app image and set path
 COPY --from=poetry-base ${POETRY_VENV} ${POETRY_VENV}
@@ -45,4 +45,4 @@ RUN poetry install --no-interaction --no-cache
 ENV PLAYBOOKS_DIR="/playbooks"
 ENV OUTPUT_DIR="/output"
 
-CMD [ "sh", "/py_crawler/fpki-graph-updates.sh" ]
+CMD [ "sh", "/py-crawler/fpki-graph-update.sh" ]
