@@ -12,7 +12,7 @@ from . import data, secrets
 
 def main():
     P7B_FILE_NAME = "CACertificatesValidatingToFederalCommonPolicyG2.p7b"
-    GEXF_FILE_NAME = "common_graph.gexf"
+    GEXF_FILE_NAME = "fpki-certs.gexf"
 
     # Identify and create output directories
     if "OUTPUT_DIR" in os.environ:
