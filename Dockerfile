@@ -30,8 +30,7 @@ RUN ["curl", "-L", "https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27
 # Extract the "gh" command to /usr/bin
 # RUN ["dpkg", "-i", "/tmp/gh.deb"]
 
-COPY py-crawler /workspaces/py-crawler/py-crawler
-#COPY secrets /py-crawler/secrets
+COPY py-crawler /workspaces/py-crawler
 
 WORKDIR /workspaces/py-crawler
 

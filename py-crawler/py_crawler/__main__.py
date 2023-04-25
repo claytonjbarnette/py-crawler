@@ -1,13 +1,14 @@
-import logging, os, shutil
+import logging
+import os
 from datetime import datetime
 from importlib import resources
 from pathlib import Path
 
+from . import data
 from .certificate_graph import CertificateGraph
 from .certs_to_p7b import P7C
 from .graph_xml import GraphXML
 from .gsa_certificate import GsaCertificate
-from . import data, secrets
 
 
 def main():
@@ -59,11 +60,10 @@ def main():
 
     # Next, produce a P7C
     logger.info("Creating P7B file")
-    # common_p7b = P7C(list(common_graph.edges.values()))
+    common_p7b = P7C(list(common_graph.edges.values()))
 
     with open(Path(output_path, P7B_FILE_NAME), "wb") as common_p7b_file:
-        pass
-        # common_p7b_file.write(common_p7b.get_p7b())
+        common_p7b_file.write(common_p7b.get_p7b())
 
     # build the gexf output
     logger.info("building gexf")
