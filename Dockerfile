@@ -17,18 +17,17 @@ COPY --from=poetry-base ${POETRY_VENV} ${POETRY_VENV}
 ENV PATH="${PATH}:${POETRY_VENV}/bin"
 # Install updates and required software
 RUN ["apt", "-y", "update"]
+RUN ["apt", "-y", "upgrade"]
 # Install the JRE
 RUN ["apt", "-y", "install", "openjdk-17-jre-headless"]
 # Install GI
 RUN ["apt", "-y", "install", "git"]
 # Install curl
 RUN ["apt", "-y", "install", "curl"]
-# Set the $ARCH variable to the architecture of the CPU - to run on multiple cpu types
-# RUN ["export", "ARCH=`dpkg --print-architecture`"]
 # Download GH CLI from github
-RUN ["curl", "-L", "https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27.0_linux_`dpkg --print-architecture`.deb", "--output", "/tmp/gh.deb"]
+RUN ["bash", "-c", "curl -L https://github.com/cli/cli/releases/download/v2.27.0/gh_2.27.0_linux_`dpkg --print-architecture`.deb --output /tmp/gh.deb"]
 # Extract the "gh" command to /usr/bin
-# RUN ["dpkg", "-i", "/tmp/gh.deb"]
+RUN ["dpkg", "-i", "/tmp/gh.deb"]
 
 COPY py-crawler /workspaces/py-crawler
 
@@ -40,7 +39,8 @@ RUN poetry check
 # Install project dependencies
 RUN poetry install --no-interaction --no-cache
 
-ENV PLAYBOOKS_DIR="/playbooks"
-ENV OUTPUT_DIR="/output"
+ENV PLAYBOOKS_DIR="/PLAYBOOKS"
+ENV OUTPUT_DIR="/OUTPUT"
+
 
 CMD [ "sh", "/workspaces/py-crawler/fpki-graph-update.sh" ]

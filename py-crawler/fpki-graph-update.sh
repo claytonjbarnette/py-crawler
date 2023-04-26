@@ -2,21 +2,38 @@
 # Setup important variables
 #------------------------------------------------------
 # SCRIPT DIRECTORY
-SCRIPT_DIRECTORY=`pwd`
+SCRIPT_DIRECTORY=$(pwd)
 # Today's date, for git submissions
-TODAY=`date +%m%d`
-# Directory where we will install the Playbooks site from github
-PLAYBOOKS_DIRECTORY="/PLAYBOOKS_SITE"
+TODAY=$(date +%m%d)
 # Secret file location
 SECRET_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken"
+
+#------------------------------------------------------
+# Confirm env variable (if run from doocker) is present
+#------------------------------------------------------
+# Directory where we will install the Playbooks site from github
+if test -v $PLAYBOOKS_DIR; then
+  echo "Playbooks Directory set by docker to $PLAYBOOKS_DIR"
+else
+  echo "No \$PLAYBOOKS_DIR set. Setting to ../PLAYBOOKS_REPO"
+  PLAYBOOKS_DIR="../PLAYBOOKS_REPO"
+fi
+
+# Directory where we will keep the output of the command
+if test -v $OUTPUT_DIR; then
+  echo "Playbooks Directory set by docker to $OUTPUT_DIR"
+else
+  echo "No \$OUTPUT_DIR set. Setting to ../OUTPUT"
+  OUTPUT_DIR="../OUTPUT"
+fi
 
 
 #------------------------------------------------------
 # Confirm secret is present
 #------------------------------------------------------
-if test -f $SECRET_FILE; then
+if test -f "$SECRET_FILE"; then
   # Set Access Token
-  GH_TOKEN=`cat $SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken`
+  GH_TOKEN=$(cat "$SECRET_FILE")
 else
   echo No secret file present at
 fi
@@ -34,19 +51,18 @@ PLAYBOOKS_REPO_URL="https://$GH_TOKEN@github.com/$PLAYBOOKS_REPO"
 #------------------------------------------------------
 # Run py_crawler
 #------------------------------------------------------
-poetry shell
-python -m py_crawler
+poetry run python -m py_crawler
 
 #------------------------------------------------------
 # Update Playbooks site with new artifacts
 #------------------------------------------------------
-if ! test -d $PLAYBOOKS_DIRECTORY; then
+if ! test -d $PLAYBOOKS_DIR; then
     # If the playbooks site doesn't exist here, create it
-    mkdir $PLAYBOOKS_DIRECTORY
+    mkdir $PLAYBOOKS_DIR
 fi
 
 (
-    cd "$PLAYBOOKS_DIRECTORY" || exit
+    cd "$PLAYBOOKS_DIR" || exit
     # initialize and update the repo
     echo "Initializing the playbooks REPO"
     git init
@@ -60,8 +76,8 @@ fi
 
     # Update the site with the new artifacts
     echo "Updating site with new artifacts"
-    cp "$SCRIPT_DIRECTORY/CACertificatesValidatingToFederalCommonPolicyG2.p7b" _fpki/tools/
-    cp "$SCRIPT_DIRECTORY/fpki-certs.gexf" _fpki/tools/
+    cp "$OUTPUT_DIR/CACertificatesValidatingToFederalCommonPolicyG2.p7b" _fpki/tools/
+    cp "$OUTPUT_DIR/fpki-certs.gexf" _fpki/tools/
     sed -e "s/\*\*Last Update\*\*: .*/\*\*Last Update\*\*: $(date +"%B %d, %Y")/" _fpki/tools/fpki_tools_graph.md > _fpki/tools/fpki_tools_graph.tmp
     mv _fpki/tools/fpki_tools_graph.tmp _fpki/tools/fpki_tools_graph.md
 
@@ -73,7 +89,7 @@ fi
 
      # Authenticating GH with a token
      echo "Authenticating GH CLI"
-     #gh auth login --with-token < /github_token
+     gh auth login --with-token $GH_TOKEN
 
      # Create Issue, record the output to a variable
      echo "Creating Issue"

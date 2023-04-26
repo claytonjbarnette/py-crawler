@@ -35,7 +35,7 @@ def main():
 
     logger = logging.getLogger("py_crawler")
     logger.setLevel(logging.DEBUG)
-    file_logger = logging.FileHandler(Path(log_path, "debug_log-" + str(datetime.now()) + ".log"))
+    file_logger = logging.FileHandler(Path(log_path, "debug_log-" + str(datetime.now().isoformat()) + ".log"))
     file_logger.setLevel(logging.DEBUG)
     logger.addHandler(file_logger)
     logger.debug("Starting Run and logging %s messages", file_logger.level)
@@ -54,7 +54,7 @@ def main():
 
     # First lets create a report of the certs discovered
     logger.info("Creating report for this crawler run.")
-    report_filename = "crawler-" + str(datetime.now()) + ".json"
+    report_filename = "crawler-" + str(datetime.now().isoformat()) + ".json"
     with open(Path(report_path, report_filename), "w") as report:
         report.write(common_graph.report())
 
