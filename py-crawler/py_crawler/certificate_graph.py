@@ -248,4 +248,4 @@ class CertificateGraph:
         for path in self.paths:
             report["found-paths"].append(self.paths[path].description)
 
-        return json.dumps(report)
+        return json.dumps(report, indent=4)
