@@ -29,18 +29,20 @@ RUN ["bash", "-c", "curl -L https://github.com/cli/cli/releases/download/v2.27.0
 # Extract the "gh" command to /usr/bin
 RUN ["dpkg", "-i", "/tmp/gh.deb"]
 
+
+FROM py-crawler-base as py-crawler
 COPY py-crawler /workspaces/py-crawler
 
 WORKDIR /workspaces/py-crawler
 
 # Check configuration
-RUN poetry check
+RUN ["poetry", "check"]
 
 # Install project dependencies
-RUN poetry install --no-interaction --no-cache
+RUN poetry install --no-interaction
 
 ENV PLAYBOOKS_DIR="/PLAYBOOKS"
 ENV OUTPUT_DIR="/OUTPUT"
 
 
-CMD [ "sh", "/workspaces/py-crawler/fpki-graph-update.sh" ]
+CMD [ "bash", "/workspaces/py-crawler/fpki-graph-update.sh" ]

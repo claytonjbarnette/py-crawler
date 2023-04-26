@@ -4,7 +4,7 @@ services:
     build: .
     volumes:
       - output:/OUTPUT
-      - playbooks-repo:/PLAYBOOKS_REPO
+      - playbooks-repo:/PLAYBOOKS
 volumes:
   playbooks-repo:
   output:
