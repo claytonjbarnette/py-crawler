@@ -6,6 +6,7 @@ import logging
 from datetime import date
 from typing import Optional
 from xml.etree import ElementTree
+from xml.dom import minidom
 
 from .certificate_graph import CertificateGraph
 from .gsa_certificate import GsaCertificate
@@ -221,4 +222,4 @@ class GraphXML:
         self.xml_graph = ElementTree.ElementTree(root_element)
 
     def tostring(self) -> Optional[str]:
-        return ElementTree.tostring(self.xml_graph.getroot(), encoding="unicode")
+        return minidom.parseString(ElementTree.tostring(self.xml_graph.getroot(), encoding="unicode")).toprettyxml(indent="    ")
