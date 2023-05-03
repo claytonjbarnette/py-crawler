@@ -98,6 +98,7 @@ class GraphXML:
             ring_id = len(node.path_to_anchor.certs)
         else:
             ring_id = 0
+        
         ring_size = self.cert_graph.ring_geometry[ring_id]
         (x_location, y_location) = self.get_node_location(
             ring_id=ring_id,
