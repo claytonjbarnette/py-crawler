@@ -9,6 +9,7 @@ from .certificate_graph import CertificateGraph
 from .certs_to_p7b import P7C
 from .graph_xml import GraphXML
 from .gsa_certificate import GsaCertificate
+from .crawler_run_report import CrawlerRunReport
 
 
 def main():
@@ -35,7 +36,9 @@ def main():
 
     logger = logging.getLogger("py_crawler")
     logger.setLevel(logging.DEBUG)
-    file_logger = logging.FileHandler(Path(log_path, "debug_log-" + str(datetime.now().isoformat()) + ".log"))
+    file_logger = logging.FileHandler(
+        Path(log_path, "debug_log-" + str(datetime.now().isoformat()) + ".log")
+    )
     file_logger.setLevel(logging.DEBUG)
     logger.addHandler(file_logger)
     logger.debug("Starting Run and logging %s messages", file_logger.level)
@@ -54,9 +57,10 @@ def main():
 
     # First lets create a report of the certs discovered
     logger.info("Creating report for this crawler run.")
+    run_report = CrawlerRunReport(common_graph)
     report_filename = "crawler-" + str(datetime.now().isoformat()) + ".json"
     with open(Path(report_path, report_filename), "w") as report:
-        report.write(common_graph.report())
+        report.write(run_report.to_json())
 
     # Next, produce a P7C
     logger.info("Creating P7B file")

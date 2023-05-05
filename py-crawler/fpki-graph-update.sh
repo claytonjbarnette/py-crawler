@@ -115,5 +115,5 @@ fi
 
   # Open a PR linked to the Issue
   echo "Creating PR"
-  gh pr create --repo "$PLAYBOOKS_REPO" --head "$BRANCH" --base "staging" --title "$(date +%m%d) Fpki Graph Update" --body "Linked to Issue #$ISSUE_NUM"
+  gh pr create --repo "$PLAYBOOKS_REPO" --head "$BRANCH" --base "staging" --title "$(date +%m%d) Fpki Graph Update" --body "Closes #$ISSUE_NUM"
 )
