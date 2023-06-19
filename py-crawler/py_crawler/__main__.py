@@ -7,7 +7,7 @@ from pathlib import Path
 from . import data
 from .certificate_graph import CertificateGraph
 from .certs_to_p7b import P7C
-from .graph_xml import GraphXML
+from .graph_gexf import GraphGexf
 from .gsa_certificate import GsaCertificate
 from .crawler_run_report import CrawlerRunReport
 
@@ -71,7 +71,7 @@ def main():
 
     # build the gexf output
     logger.info("building gexf")
-    graph_xml = GraphXML(cert_graph=common_graph).tostring()
+    graph_xml = GraphGexf(cert_graph=common_graph).tostring()
     if graph_xml is not None:
         with open(Path(output_path, GEXF_FILE_NAME), "w") as graph_file:
             # Write file

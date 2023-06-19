@@ -14,9 +14,14 @@ from .gsa_certificate import GsaCertificate
 logger = logging.getLogger("py_crawler.graph_xml")
 
 
-class GraphXML:
+class GraphGexf:
+    # An object to store the GEXF contents
     xml_graph: ElementTree.ElementTree
     cert_graph: CertificateGraph
+    # To layout the graph using the current library, we will need to identify
+    # the number of concentric rings and the number of elements per ring.
+    # We define a where the key is the ring id and the value is the number of elements.
+    ring_geometry: dict[int, int]
 
     # Useful constants
     NODE_SIZE = "10.0"
@@ -98,7 +103,7 @@ class GraphXML:
             ring_id = len(node.path_to_anchor.certs)
         else:
             ring_id = 0
-        
+
         ring_size = self.cert_graph.ring_geometry[ring_id]
         (x_location, y_location) = self.get_node_location(
             ring_id=ring_id,
@@ -223,4 +228,6 @@ class GraphXML:
         self.xml_graph = ElementTree.ElementTree(root_element)
 
     def tostring(self) -> Optional[str]:
-        return minidom.parseString(ElementTree.tostring(self.xml_graph.getroot(), encoding="unicode")).toprettyxml(indent="    ")
+        return minidom.parseString(
+            ElementTree.tostring(self.xml_graph.getroot(), encoding="unicode")
+        ).toprettyxml(indent="    ")
