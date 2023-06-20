@@ -2,3 +2,4 @@ crawler-*
 **/secrets/accesstoken
 logs/**
 reports/**
+*.pyc
