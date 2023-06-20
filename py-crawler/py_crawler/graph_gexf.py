@@ -207,27 +207,18 @@ class GraphGexf:
 
         # Create the edges
         edges_element = ElementTree.Element("edges")
-        edge_set: set[tuple[str, str]] = set()
         edges_dict: dict[str, dict[str, str]] = {}
 
         for edge_cert in [cert[2] for cert in edge_cert_set]:
             edge_label = (edge_cert.subject.split(sep=":")[1]).split(",")[0]
 
-            if (
-                edge_cert.issuer != edge_cert.subject
-                and (edge_cert.issuer, edge_cert.subject) not in edge_set
-            ):
-                edges_dict[edge_label] = {
-                    "id": edge_cert.subject,
-                    "source": edge_cert.issuer,
-                    "target": edge_cert.subject,
-                    "label": edge_label,
-                    "weight": "1.0",
-                }
-            else:
-                edges_dict[edge_label]["weight"] = str(
-                    float(edges_dict[edge_label]["weight"]) + 1.0
-                )
+            edges_dict[edge_label] = {
+                "id": edge_cert.subject,
+                "source": edge_cert.issuer,
+                "target": edge_cert.subject,
+                "label": edge_label,
+                "weight": "1.0",
+            }
 
         for label in edges_dict:
             edge_element = ElementTree.SubElement(
