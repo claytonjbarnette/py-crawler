@@ -71,7 +71,8 @@ def main():
 
     # build the gexf output
     logger.info("building gexf")
-    graph_xml = GraphGexf(cert_graph=common_graph).tostring()
+    common_gexf = GraphGexf(cert_graph=common_graph)
+    graph_xml = common_gexf.tostring()
     if graph_xml is not None:
         with open(Path(output_path, GEXF_FILE_NAME), "w") as graph_file:
             # Write file
