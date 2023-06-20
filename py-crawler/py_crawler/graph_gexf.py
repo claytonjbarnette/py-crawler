@@ -18,10 +18,11 @@ class GraphGexf:
     # An object to store the GEXF contents
     xml_graph: ElementTree.ElementTree
     cert_graph: CertificateGraph
+
     # To layout the graph using the current library, we will need to identify
     # the number of concentric rings and the number of elements per ring.
     # We define a where the key is the ring id and the value is the number of elements.
-    ring_geometry: dict[int, int]
+    ring_geometry: dict[int, int] = {}
 
     # Useful constants
     NODE_SIZE = "10.0"
@@ -104,7 +105,7 @@ class GraphGexf:
         else:
             ring_id = 0
 
-        ring_size = self.cert_graph.ring_geometry[ring_id]
+        ring_size = self.ring_geometry[ring_id]
         (x_location, y_location) = self.get_node_location(
             ring_id=ring_id,
             ring_index=ring_tracker[ring_id],
@@ -133,8 +134,38 @@ class GraphGexf:
 
         return node_list
 
+    def calculate_ring_geometry(self, certs: list[GsaCertificate]) -> None:
+        # Calculate ring geometry, the number of rings (with anchor at the center) and the number
+        # of points in each ring
+
+        # Start with the center
+        self.ring_geometry[0] = 1
+
+        for cert in certs:
+            cert_ring = len(cert.path_to_anchor.certs)
+            # Add 1 more point to the corresponding ring. If the key doesn't exist, create
+            # it with a value of 1
+            try:
+                logger.debug("Adding 1 to ring[%s]", cert_ring)
+                self.ring_geometry[cert_ring] += 1
+            except KeyError:
+                logger.debug("Initializing ring[%s] with value 1", cert_ring)
+                self.ring_geometry[cert_ring] = 1
+
     def __init__(self, cert_graph: CertificateGraph) -> None:
         self.cert_graph = cert_graph
+
+        # Get all the certs that are not self-signed
+        edge_certs = [cert for cert in cert_graph.edges.values() if cert.subject != cert.issuer]
+
+        # Get rid of redundant certs by turning the list into a set
+        edge_cert_set: set[tuple[str, str, GsaCertificate]] = set(
+            [(cert.issuer, cert.subject, cert) for cert in edge_certs]
+        )
+
+        # Build the Ring Geometry
+        self.calculate_ring_geometry(certs=[cert[2] for cert in edge_cert_set])
+
         # Root
         root_element = ElementTree.Element("gexf", attrib=self.XMLNS_DICT)
 
@@ -167,7 +198,7 @@ class GraphGexf:
         nodes_element = ElementTree.Element("nodes")
 
         # Initialize a dict to track the geometry for the node rings
-        ring_tracker = {x: 0 for x in self.cert_graph.ring_geometry.keys()}
+        ring_tracker = {x: 0 for x in self.ring_geometry.keys()}
 
         nodes_element.extend(self.write_node(self.cert_graph.anchor, ring_tracker, node_names=[]))
 
@@ -179,10 +210,7 @@ class GraphGexf:
         edge_set: set[tuple[str, str]] = set()
         edges_dict: dict[str, dict[str, str]] = {}
 
-        # Get all the certs that are not self-signed
-        edge_certs = [cert for cert in cert_graph.edges.values() if cert.subject != cert.issuer]
-
-        for edge_cert in edge_certs:
+        for edge_cert in [cert[2] for cert in edge_cert_set]:
             edge_label = (edge_cert.subject.split(sep=":")[1]).split(",")[0]
 
             if (

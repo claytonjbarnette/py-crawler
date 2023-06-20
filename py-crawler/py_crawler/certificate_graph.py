@@ -22,10 +22,6 @@ class CertificateGraph:
     # A list of certificates discovered but for which the path could not be built
     # (e.g. invalid, revoked, etc.)
     no_path: List[GsaCertificate]
-    # To layout the graph using the current library, we will need to identify
-    # the number of concentric rings and the number of elements per ring.
-    # We define a where the key is the ring id and the value is the number of elements.
-    ring_geometry: dict[int, int]
 
     def __init__(self, anchor: GsaCertificate) -> None:
         # set the root to the trust anchor
@@ -36,7 +32,6 @@ class CertificateGraph:
         self.edges = {}
         self.no_path = []
         self.paths = {}
-        self.ring_geometry = {}
 
         # We add a special status for the root, since the "get_status" function doesn't make sense for
         # the trust anchor
@@ -148,19 +143,6 @@ class CertificateGraph:
                     self.nodes.add(cert_to_process.subject)
                     self.edges[cert_to_process.identifier] = cert_to_process
                     self.paths[cert_to_process.path_identifier] = cert_to_process.path_to_anchor
-                    # Add 1 more to the corresponding ring geometry. If the key doesn't exist, create
-                    # it with a value of 1
-                    try:
-                        logger.debug(
-                            "Adding 1 to ring[%s]", len(cert_to_process.path_to_anchor.certs)
-                        )
-                        self.ring_geometry[len(cert_to_process.path_to_anchor.certs)] += 1
-                    except KeyError:
-                        logger.debug(
-                            "Initializing ring[%s] with value 1",
-                            len(cert_to_process.path_to_anchor.certs),
-                        )
-                        self.ring_geometry[len(cert_to_process.path_to_anchor.certs)] = 1
 
                     logger.debug(
                         "Adding SIA and AIA certificates from %s to certs_to_process.",
