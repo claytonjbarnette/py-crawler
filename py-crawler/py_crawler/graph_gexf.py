@@ -81,20 +81,14 @@ class GraphGexf:
 
     def write_node(
         self,
-        node: GsaCertificate,
-        ring_tracker: dict[int, int],
-        node_names: list[str],
-    ) -> list[ElementTree.Element]:
-        node_list = []
-        node_geometry_dict: dict[str, str] = {}
-        node_id = node.subject
-
-        node_names.append(node_id)
-
+        node_name: str,
+        ring: int,
+        ring_index: int,
+    ) -> ElementTree.Element:
         # The label is the CN, which is everything after the first colon, but before the first comma
-        node_label = (node.subject.split(sep=":")[1]).split(",")[0]
+        node_label = (node_name.split(sep=":")[1]).split(",")[0]
 
-        node_element = ElementTree.Element("node", attrib={"id": node_id, "label": node_label})
+        node_element = ElementTree.Element("node", attrib={"id": node_name, "label": node_label})
         node_element.append(ElementTree.Element("size", attrib={"value": self.NODE_SIZE}))
         node_element.append(
             ElementTree.Element(
@@ -107,40 +101,17 @@ class GraphGexf:
             )
         )
 
-        # Set up position
-        if node.path_to_anchor is not None:
-            ring_id = len(node.path_to_anchor.certs)
-        else:
-            ring_id = 0
-
-        ring_size = self.ring_geometry[ring_id]
         (x_location, y_location) = self.get_node_location(
-            ring_id=ring_id,
-            ring_index=ring_tracker[ring_id],
-            ring_size=ring_size,
+            ring_id=ring,
+            ring_index=ring_index,
+            ring_size=self.ring_geometry[ring],
         )
-        ring_tracker[ring_id] += 1
 
         node_geometry_dict = {"x": str(x_location) + ".0", "y": str(y_location) + ".0", "z": "0.0"}
 
         node_element.append(ElementTree.Element("viz:position", attrib=node_geometry_dict))
 
-        node_list.append(node_element)
-
-        if len(node.sia_results) > 0:
-            for sia_result in node.sia_results:
-                for cert in sia_result.certs:
-                    if cert.subject not in node_names:
-                        node_names.append(cert.subject)  # Track these to avoid duplicates
-                        node_list.extend(
-                            self.write_node(
-                                cert,
-                                ring_tracker=ring_tracker,
-                                node_names=node_names,
-                            )
-                        )
-
-        return node_list
+        return node_element
 
     def __init__(self, cert_graph: CertificateGraph) -> None:
         self.cert_graph = cert_graph
@@ -216,7 +187,12 @@ class GraphGexf:
         # Initialize a dict to track the geometry for the node rings
         ring_tracker = {x: 0 for x in self.ring_geometry.keys()}
 
-        nodes_element.extend(self.write_node(self.cert_graph.anchor, ring_tracker, node_names=[]))
+        # Step through the nodes and create an XML element for each one
+        for node_name, ring in self.nodes.items():
+            nodes_element.append(
+                self.write_node(node_name=node_name, ring=ring, ring_index=ring_tracker[ring])
+            )
+            ring_tracker[ring] += 1
 
         # Add the nodes to the graph
         graph_element.append(nodes_element)
