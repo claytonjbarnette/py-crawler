@@ -3,3 +3,4 @@ crawler-*
 logs/**
 reports/**
 *.pyc
+**/__pycache__/*
