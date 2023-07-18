@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 from .certificate_path import CertificatePath
 from .gsa_certificate import GsaCertificate
@@ -69,12 +69,14 @@ class CertificateGraph:
                     certs=parent_path.certs + tuple([leaf_cert]),
                 )
                 return path
-            except KeyError as ke:
+            except KeyError:
                 # We don't have the parent's path
 
                 # Log a warning, and add that info to the path processor result
                 # field of the cert
-                logger.warning("Found Cert in SIA without Parent: %s", leaf_cert.identifier)
+                logger.warning(
+                    "Found Cert in SIA without Parent: %s", leaf_cert.identifier
+                )
                 leaf_cert.pathbuilder_result[
                     "WARNING"
                 ] = "Certificate is present in SIA of a CA that is not its issuer"
@@ -123,13 +125,16 @@ class CertificateGraph:
                     cert_to_process.status == GsaCertificate.Status.UNCHECKED
                 ):  # get a path to pass to pathbuilder (pathbuilder will only validate)
                     try:
-                        cert_to_process.path_to_anchor = self.get_path(leaf_cert=cert_to_process)
+                        cert_to_process.path_to_anchor = self.get_path(
+                            leaf_cert=cert_to_process
+                        )
                         cert_to_process.status = cert_to_process.get_status(
                             proposed_path=cert_to_process.path_to_anchor
                         )
-                    except Exception as e:
+                    except Exception:
                         logger.debug(
-                            "Path not found. Sending %s to purgatory", cert_to_process.identifier
+                            "Path not found. Sending %s to purgatory",
+                            cert_to_process.identifier,
                         )
                         purgatory_certs.append(cert_to_process)
 
@@ -142,7 +147,9 @@ class CertificateGraph:
                     self.nodes.add(cert_to_process.issuer)
                     self.nodes.add(cert_to_process.subject)
                     self.edges[cert_to_process.identifier] = cert_to_process
-                    self.paths[cert_to_process.path_identifier] = cert_to_process.path_to_anchor
+                    self.paths[
+                        cert_to_process.path_identifier
+                    ] = cert_to_process.path_to_anchor
 
                     logger.debug(
                         "Adding SIA and AIA certificates from %s to certs_to_process.",
@@ -156,11 +163,14 @@ class CertificateGraph:
                     # We should only get here if the we could't find a path.
                     # We have already sent the cert to purgatory, so just log the event and move on
                     logger.debug(
-                        "Sent %s to purgatory. Will reprocess in second pass.", cert_to_process
+                        "Sent %s to purgatory. Will reprocess in second pass.",
+                        cert_to_process,
                     )
                 else:
                     # We should only get here if we found a path, but something happened in processing
-                    logger.debug("FAILED - sending %s to failed", cert_to_process.identifier)
+                    logger.debug(
+                        "FAILED - sending %s to failed", cert_to_process.identifier
+                    )
                     self.no_path.append(cert_to_process)
                     logger.info("Skipping invalid or revoked cert %s", cert_to_process)
 
@@ -176,21 +186,25 @@ class CertificateGraph:
         # To be extra sure we get everything, we're going to do one pas to build paths for all the certs in the list
         for cert_to_process in purgatory_certs:
             try:
-                cert_to_process.path_to_anchor = self.get_path(leaf_cert=cert_to_process)
-            except Exception as e:
+                cert_to_process.path_to_anchor = self.get_path(
+                    leaf_cert=cert_to_process
+                )
+            except Exception:
                 logger.debug(
-                    "Path not found for %s during first round.", cert_to_process.identifier
+                    "Path not found for %s during first round.",
+                    cert_to_process.identifier,
                 )
 
         # Now we'll try again - just in case we found the missing path
         for cert_to_process in purgatory_certs:
             try:
-                if cert_to_process.path_to_anchor is not None:
-                    cert_to_process.path_to_anchor = self.get_path(leaf_cert=cert_to_process)
+                cert_to_process.path_to_anchor = self.get_path(
+                    leaf_cert=cert_to_process
+                )
                 cert_to_process.status = cert_to_process.get_status(
                     proposed_path=cert_to_process.path_to_anchor
                 )
-            except Exception as e:
+            except Exception:
                 logger.debug(
                     "Path not found for %s during second round. Sending to failed",
                     cert_to_process.identifier,
@@ -217,17 +231,8 @@ class CertificateGraph:
     def report(self) -> str:
         report = {}
         report["anchor"] = self.anchor.issuer
-        report["issuers"] = []
-        for node in self.nodes:
-            report["issuers"].append(node)
-        report["valid-certs"] = []
-        for cert in self.edges.values():
-            report["valid-certs"].append(cert.report_entry())
-        report["bad-certs"] = []
-        for cert in self.no_path:
-            report["bad-certs"].append(cert.report_entry())
-        report["found-paths"] = []
-        for path in self.paths:
-            report["found-paths"].append(self.paths[path].description)
-
+        report["issuers"] = [node for node in self.nodes]
+        report["valid-certs"] = [cert.report_entry() for cert in self.edges.values()]
+        report["bad-certs"] = [cert.report_entry() for cert in self.no_path]
+        report["found-paths"] = [path.description for path in self.paths.values()]
         return json.dumps(report, indent=4)
