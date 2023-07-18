@@ -44,10 +44,10 @@ class GsaCertificate:
     issuer: str
     subject: str
     status: Status
-    pathbuilder_result: Dict[str, str]
+    pathbuilder_result: dict[str, str]
     sia_results: List[XiaResult]
     aia_results: List[XiaResult]
-    path_to_anchor: CertificatePath
+    path_to_anchor: CertificatePath | None
 
     def get_status(self, proposed_path: CertificatePath) -> Status:
         script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -125,7 +125,10 @@ class GsaCertificate:
                 elif pathbuilder_status["result"] == "false":
                     if pathbuilder_status["details"] == "Unable to build Path":
                         self.status = self.Status.NO_PATH
-                    elif pathbuilder_status["details"] == "End Entity Cert expired or not valid":
+                    elif (
+                        pathbuilder_status["details"]
+                        == "End Entity Cert expired or not valid"
+                    ):
                         self.status = self.Status.INVALID
                     else:
                         self.status = self.Status.OTHER
@@ -186,8 +189,12 @@ class GsaCertificate:
         # need to match their issuer name and akid to the subject and skid in this cert.
         # this identifier is <subject>:<skid>, which facilitates that discovery
         path_identifier = self.subject + ":"
-        if self.cert.key_identifier is not None:  # Note this shouldn't happen in Fed PKI
-            path_identifier += "".join("{:02x}".format(byte) for byte in self.cert.key_identifier)
+        if (
+            self.cert.key_identifier is not None
+        ):  # Note this shouldn't happen in Fed PKI
+            path_identifier += "".join(
+                "{:02x}".format(byte) for byte in self.cert.key_identifier
+            )
         return path_identifier
 
     @property
@@ -196,7 +203,9 @@ class GsaCertificate:
         # the authority key id, which should match the subject and skid of the node above it
         # in the path
         path_parent_identifier = self.issuer + ":"
-        if self.cert.authority_key_identifier is not None:  # Note this shouldn't happen in Fed PKI
+        if (
+            self.cert.authority_key_identifier is not None
+        ):  # Note this shouldn't happen in Fed PKI
             path_parent_identifier += "".join(
                 "{:02x}".format(byte) for byte in self.cert.authority_key_identifier
             )
@@ -246,7 +255,11 @@ class GsaCertificate:
 
             status = "OK"
 
-            if type(p7c) == cms.ContentInfo and p7c != None and p7c["content"] is not None:
+            if (
+                type(p7c) == cms.ContentInfo
+                and p7c != None
+                and p7c["content"] is not None
+            ):
                 for cert in p7c["content"]["certificates"]:
                     logger.debug("found cert")
                     found_certs.append(GsaCertificate(input_bytes=cert.dump()))
@@ -264,13 +277,17 @@ class GsaCertificate:
         #     raise Exception("Invalid URL for LDAP")
 
         server_str = uri_components["host"]
-        server_str += uri_components["port"] if uri_components["port"] is not None else ""
+        server_str += (
+            uri_components["port"] if uri_components["port"] is not None else ""
+        )
 
         search_filter = "(objectclass=*)"
 
         server = ldap3.Server(server_str, get_info=ldap3.SCHEMA)
 
-        with ldap3.Connection(server_str, auto_bind="DEFAULT", check_names=True) as conn:
+        with ldap3.Connection(
+            server_str, auto_bind="DEFAULT", check_names=True
+        ) as conn:
             conn.search(
                 search_base=uri_components["base"],
                 search_filter=search_filter,
@@ -360,7 +377,7 @@ class GsaCertificate:
             logger.debug("Unknown URI scheme in URL %s", info_access_url)
             return XiaResult(info_access_url, "Unsupported schema", [])
 
-    def report_entry(self) -> Dict[str, Any]:
+    def report_entry(self) -> Dict[str, str | int | datetime]:
         report_entry = {}
         report_entry["subject"] = self.subject
         report_entry["issuer"] = self.issuer
@@ -377,21 +394,21 @@ class GsaCertificate:
         report_entry["pathbuilder-result"] = self.pathbuilder_result
         if self.status == self.Status.VALID:
             if len(self.path_to_anchor.certs) > 0:
-                report_entry["path-to-common"] = []
-                for cert in self.path_to_anchor.certs:
-                    report_entry["path-to-common"].append(cert.subject)
+                report_entry["path-to-common"] = [
+                    cert.subject for cert in self.path_to_anchor.certs
+                ]
 
             report_entry["sia-entries"] = {}
             for result in self.sia_results:
-                report_entry["sia-entries"][result.url] = []
-                for cert in result.certs:
-                    report_entry["sia-entries"][result.url].append(cert.subject)
+                report_entry["sia-entries"][result.url] = [
+                    cert for cert in result.certs
+                ]
 
             report_entry["aia-entries"] = {}
             for result in self.aia_results:
-                report_entry["aia-entries"][result.url] = []
-                for cert in result.certs:
-                    report_entry["aia-entries"][result.url].append(cert.issuer)
+                report_entry["aia-entries"][result.url] = [
+                    cert.issuer for cert in result.certs
+                ]
 
         elif self.status == self.Status.INVALID:
             report_entry["parent_path_identifier"] = self.path_parent_identifier
