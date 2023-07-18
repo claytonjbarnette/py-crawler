@@ -9,7 +9,6 @@ from xml.etree import ElementTree
 from xml.dom import minidom
 
 from .certificate_graph import CertificateGraph
-from .gsa_certificate import GsaCertificate
 
 logger = logging.getLogger("py_crawler.graph_xml")
 
@@ -51,7 +50,9 @@ class GraphGexf:
     GEXF_TYPE = "directed"
     GEXF_MODE = "static"
 
-    def get_node_location(self, ring_id: int, ring_index: int, ring_size: int) -> tuple[int, int]:
+    def get_node_location(
+        self, ring_id: int, ring_index: int, ring_size: int
+    ) -> tuple[int, int]:
         x_location = y_location = 0
 
         logger.debug(
@@ -88,8 +89,12 @@ class GraphGexf:
         # The label is the CN, which is everything after the first colon, but before the first comma
         node_label = (node_name.split(sep=":")[1]).split(",")[0]
 
-        node_element = ElementTree.Element("node", attrib={"id": node_name, "label": node_label})
-        node_element.append(ElementTree.Element("size", attrib={"value": self.NODE_SIZE}))
+        node_element = ElementTree.Element(
+            "node", attrib={"id": node_name, "label": node_label}
+        )
+        node_element.append(
+            ElementTree.Element("size", attrib={"value": self.NODE_SIZE})
+        )
         node_element.append(
             ElementTree.Element(
                 "viz:color",
@@ -107,9 +112,15 @@ class GraphGexf:
             ring_size=self.ring_geometry[ring],
         )
 
-        node_geometry_dict = {"x": str(x_location) + ".0", "y": str(y_location) + ".0", "z": "0.0"}
+        node_geometry_dict = {
+            "x": str(x_location) + ".0",
+            "y": str(y_location) + ".0",
+            "z": "0.0",
+        }
 
-        node_element.append(ElementTree.Element("viz:position", attrib=node_geometry_dict))
+        node_element.append(
+            ElementTree.Element("viz:position", attrib=node_geometry_dict)
+        )
 
         return node_element
 
@@ -119,18 +130,26 @@ class GraphGexf:
         # Use the subjects of the certs as the list of nodes.
         # Use a set to avoid duplicates
         node_ids = set(
-            [cert.subject for cert in cert_graph.edges.values() if cert.subject != cert.issuer]
+            [
+                cert.subject
+                for cert in cert_graph.edges.values()
+                if cert.subject != cert.issuer
+            ]
         )
 
         # Get all the certs that are not self-signed or self-issued (these confuse gexf).
-        edge_certs = [cert for cert in cert_graph.edges.values() if cert.subject != cert.issuer]
+        edge_certs = [
+            cert for cert in cert_graph.edges.values() if cert.subject != cert.issuer
+        ]
 
         # Build the node list
         # Calculate the shortest path from the node to the anchor,
         # if there is more than one cert with the node as the subject
         for node in node_ids:
             edges_to_node = [
-                len(cert.path_to_anchor.certs) for cert in edge_certs if cert.subject == node
+                len(cert.path_to_anchor.certs)
+                for cert in edge_certs
+                if cert.subject == node
             ]
             if len(edges_to_node) > 1:
                 self.nodes[node] = min(edges_to_node)
@@ -169,7 +188,9 @@ class GraphGexf:
 
         # Description
         description_element = ElementTree.Element("description")
-        description_element.text = f"Created by Py-Crawler on {date.today().isoformat()}"
+        description_element.text = (
+            f"Created by Py-Crawler on {date.today().isoformat()}"
+        )
         meta_element.append(description_element)
 
         # Attach completed metadata to root
@@ -190,7 +211,9 @@ class GraphGexf:
         # Step through the nodes and create an XML element for each one
         for node_name, ring in self.nodes.items():
             nodes_element.append(
-                self.write_node(node_name=node_name, ring=ring, ring_index=ring_tracker[ring])
+                self.write_node(
+                    node_name=node_name, ring=ring, ring_index=ring_tracker[ring]
+                )
             )
             ring_tracker[ring] += 1
 
