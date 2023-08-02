@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import datetime
-from typing import Union
 
 from .certificate_graph import CertificateGraph
 from .gsa_certificate import GsaCertificate
@@ -12,19 +11,10 @@ logger = logging.getLogger("py_crawler.crawler_run_report")
 
 
 class CrawlerRunReport:
-    report: dict[
-        str,
-        str
-        | list[str]
-        | list[dict[str, str | int | datetime.datetime]]
-        | list[tuple[str]]
-        | dict[str, list[str]],
-    ]
-
     def __init__(self, run_graph: CertificateGraph) -> None:
         self.report = {}
         self.report["anchor"] = run_graph.anchor.issuer
-        self.report["changes"] = dict()
+        self.report["changes"] = {}
         # new_certs has every cert that is less than two weeks old
         self.report["changes"]["new_certs"] = [
             identifier
@@ -33,11 +23,13 @@ class CrawlerRunReport:
             - run_graph.edges[identifier].cert.not_valid_before
             < datetime.timedelta(weeks=2)
         ]
-        self.report["issuers"] = [node for node in run_graph.nodes]
+        self.report["issuers"] = sorted([node for node in run_graph.nodes])
         self.report["valid-certs"] = [
-            cert.report_entry() for cert in run_graph.edges.values()
+            self.cert_report(cert=cert) for cert in run_graph.edges.values()
         ]
-        self.report["bad-certs"] = [cert.report_entry() for cert in run_graph.no_path]
+        self.report["bad-certs"] = [
+            self.cert_report(cert=cert) for cert in run_graph.no_path
+        ]
         self.report["found-paths"] = [
             path.description for path in run_graph.paths.values()
         ]
