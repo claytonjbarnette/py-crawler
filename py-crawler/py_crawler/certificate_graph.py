@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Dict, List, Optional, Set
 
@@ -40,11 +39,7 @@ class CertificateGraph:
 
         # Create a "pseudo-path" for the root. The trust anchor is never actually in the path, but
         # we want to print it out, so we create a fake path with a name but no certs.
-        self.anchor.path_to_anchor = CertificatePath(
-            end_identifier=self.anchor.path_identifier,
-            description=tuple([self.anchor.subject]),
-            certs=tuple(),
-        )
+        self.anchor.path_to_anchor = CertificatePath(certs=[anchor])
 
         self.paths[self.anchor.path_identifier] = self.anchor.path_to_anchor
 
@@ -63,11 +58,7 @@ class CertificateGraph:
             try:
                 parent_path = self.paths[leaf_cert.path_parent_identifier]
                 # create a new path ending at the leaf_cert
-                path = CertificatePath(
-                    end_identifier=leaf_cert.path_identifier,
-                    description=parent_path.description + tuple([leaf_cert.subject]),
-                    certs=parent_path.certs + tuple([leaf_cert]),
-                )
+                path = CertificatePath(certs=parent_path.certs + [leaf_cert])
                 return path
             except KeyError:
                 # We don't have the parent's path
@@ -114,11 +105,7 @@ class CertificateGraph:
                         "INFO"
                     ] = "Certificate is a trust anchor, but not the root of the graph"
                     # Create an empty Certificate Path
-                    cert_to_process.path_to_anchor = CertificatePath(
-                        end_identifier=cert_to_process.path_identifier,
-                        description=tuple(),
-                        certs=tuple(),
-                    )
+                    cert_to_process.path_to_anchor = CertificatePath(certs=[])
                     self.no_path.append(cert_to_process)
 
                 if (
@@ -227,12 +214,3 @@ class CertificateGraph:
             len(self.edges),
             len(self.no_path),
         )
-
-    def report(self) -> str:
-        report = {}
-        report["anchor"] = self.anchor.issuer
-        report["issuers"] = [node for node in self.nodes]
-        report["valid-certs"] = [cert.report_entry() for cert in self.edges.values()]
-        report["bad-certs"] = [cert.report_entry() for cert in self.no_path]
-        report["found-paths"] = [path.description for path in self.paths.values()]
-        return json.dumps(report, indent=4)

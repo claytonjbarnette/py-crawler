@@ -45,9 +45,9 @@ class GsaCertificate:
     subject: str
     status: Status
     pathbuilder_result: dict[str, str]
-    sia_results: List[XiaResult]
-    aia_results: List[XiaResult]
-    path_to_anchor: CertificatePath | None
+    sia_results: List[XiaResult] = []
+    aia_results: List[XiaResult] = []
+    path_to_anchor: CertificatePath
 
     def get_status(self, proposed_path: CertificatePath) -> Status:
         script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -178,10 +178,6 @@ class GsaCertificate:
         logger.info("Got certificate %s", self)
 
         self.status = self.Status.UNCHECKED
-        self.sia_results = []
-        self.aia_results = []
-        self.pathbuilder_result = {}
-        self.path_to_anchor = None
 
     @property
     def path_identifier(self) -> str:
@@ -189,9 +185,8 @@ class GsaCertificate:
         # need to match their issuer name and akid to the subject and skid in this cert.
         # this identifier is <subject>:<skid>, which facilitates that discovery
         path_identifier = self.subject + ":"
-        if (
-            self.cert.key_identifier is not None
-        ):  # Note this shouldn't happen in Fed PKI
+        if self.cert.key_identifier is not None:
+            # Note this shouldn't happen in Fed PKI
             path_identifier += "".join(
                 "{:02x}".format(byte) for byte in self.cert.key_identifier
             )
@@ -203,9 +198,8 @@ class GsaCertificate:
         # the authority key id, which should match the subject and skid of the node above it
         # in the path
         path_parent_identifier = self.issuer + ":"
-        if (
-            self.cert.authority_key_identifier is not None
-        ):  # Note this shouldn't happen in Fed PKI
+        if self.cert.authority_key_identifier is not None:
+            # Note this shouldn't happen in Fed PKI
             path_parent_identifier += "".join(
                 "{:02x}".format(byte) for byte in self.cert.authority_key_identifier
             )
@@ -341,7 +335,7 @@ class GsaCertificate:
 
         # Populate the aia_results attributes based on any discovered AIA URLs
         if len(self.aia_results) == 0:
-            aia_values: list[dict] = [
+            aia_values = [
                 extension["extn_value"]
                 for extension in self.cert_dict["extensions"]
                 if extension["extn_id"] == "authority_information_access"
