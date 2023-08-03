@@ -127,19 +127,22 @@ class GraphGexf:
     def __init__(self, cert_graph: CertificateGraph) -> None:
         self.cert_graph = cert_graph
 
+        # Replaces with sorted properties. Delete if that works
         # Use the subjects of the certs as the list of nodes.
         # Use a set to avoid duplicates
-        node_ids = set(
-            [
-                cert.subject
-                for cert in cert_graph.edges.values()
-                if cert.subject != cert.issuer
-            ]
-        )
+        # node_ids = set(
+        #     [
+        #         cert.subject
+        #         for cert in cert_graph.edges.values()
+        #         if cert.subject != cert.issuer
+        #     ]
+        # )
+
+        node_ids = self.cert_graph.sorted_nodes
 
         # Get all the certs that are not self-signed or self-issued (these confuse gexf).
         edge_certs = [
-            cert for cert in cert_graph.edges.values() if cert.subject != cert.issuer
+            cert for cert in cert_graph.sorted_edges.values() if cert.subject != cert.issuer
         ]
 
         # Build the node list

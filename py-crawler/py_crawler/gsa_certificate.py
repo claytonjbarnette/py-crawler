@@ -78,14 +78,13 @@ class GsaCertificate:
             ]
 
             # Get the p7c from the path
-            p7c_obj = proposed_path.p7c
             if len(proposed_path.p7c) > 0:
                 logger.debug("Intermediate Certs passed to get_status for %s:", self)
 
                 pathbuilder_args.extend(
                     [
                         "--bundle-base64",
-                        base64.b64encode(p7c_obj),
+                        base64.b64encode(proposed_path.p7c),
                     ]
                 )
             logger.debug("Pathbuilder command arguments %s", pathbuilder_args)
@@ -217,16 +216,15 @@ class GsaCertificate:
     def is_trust_anchor(self) -> bool:
         # Some certs in the graph are trust anchors without any path.
         # If we identify one of these, we can stop processing
-        is_trust_anchor = False
-
+        # This function returns true if the cert is an anchor
         if (
             self.cert.subject == self.cert.issuer
             and self.cert.ca
             and self.cert.authority_information_access_value == None
         ):
-            is_trust_anchor = True
+            return True
 
-        return is_trust_anchor
+        return False
 
     def get_info_access_certs_http(self, url: str) -> XiaResult:
         status: str = "UNKNOWN"

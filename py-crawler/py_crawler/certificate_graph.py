@@ -38,40 +38,40 @@ class CertificateGraph:
         self.anchor.pathbuilder_result = {"result": "true", "details": "Trust Anchor"}
 
         # Create a "pseudo-path" for the root. The trust anchor is never actually in the path, but
-        # we want to print it out, so we create a fake path with a name but no certs.
-        self.anchor.path_to_anchor = CertificatePath(certs=[anchor])
+        # the get_path function is seeded with an empty path for the Anchor
+        logger.debug("Adding empty path for anchor with key %s", self.anchor.path_identifier)
+        self.paths[self.anchor.path_identifier] = self.anchor.path_to_anchor = CertificatePath(certs=[])
 
-        self.paths[self.anchor.path_identifier] = self.anchor.path_to_anchor
+    @property
+    def sorted_nodes(self) -> list[str]:
+        return sorted(self.nodes)
+    
+    @property
+    def sorted_edges(self) -> dict[str, GsaCertificate]:
+        return {key: self.edges[key] for key in sorted(self.edges.keys())}
 
     def get_path(self, leaf_cert: GsaCertificate) -> CertificatePath:
         # Provide a list of intermediate certs between the leaf and the root to facilitate
         # path validation
         logger.debug("Getting intermediates for %s", leaf_cert.subject)
-        path: Optional[CertificatePath] = None
 
-        # First, see if we were called with the root of the graph
-        if leaf_cert.identifier == self.anchor.identifier:
-            logger.debug("CertificateGraph.get_path called with root - skipping")
-            return self.anchor.path_to_anchor
-        else:
-            # See if we have already identified the path of the certificate's issuer
-            try:
-                parent_path = self.paths[leaf_cert.path_parent_identifier]
-                # create a new path ending at the leaf_cert
-                path = CertificatePath(certs=parent_path.certs + [leaf_cert])
-                return path
-            except KeyError:
-                # We don't have the parent's path
+        # See if we have already identified the path of the certificate's issuer
+        try:
+            logger.debug("Getting path ending at %s", leaf_cert.path_parent_identifier)
+            return self.paths[leaf_cert.path_parent_identifier]
+            
+        except KeyError:
+            # We don't have the parent's path
 
-                # Log a warning, and add that info to the path processor result
-                # field of the cert
-                logger.warning(
-                    "Found Cert in SIA without Parent: %s", leaf_cert.identifier
-                )
-                leaf_cert.pathbuilder_result[
-                    "WARNING"
-                ] = "Certificate is present in SIA of a CA that is not its issuer"
-                raise Exception("Path from %s to root not found.", leaf_cert)
+            # Log a warning, and add that info to the path processor result
+            # field of the cert
+            logger.warning(
+                "Found Cert in SIA without Parent: %s", leaf_cert.identifier
+            )
+            leaf_cert.pathbuilder_result[
+                "WARNING"
+            ] = "Certificate is present in SIA of a CA that is not its issuer"
+            raise Exception("Path from %s to root not found.", leaf_cert)
 
     def build_graph(self):
         # List of unprocessed certs - we will add to this as we discover new certs
@@ -99,25 +99,28 @@ class CertificateGraph:
                 # IF not , process it
                 logger.info("Processing certificate %s", cert_to_process)
 
+                # First, check to see if we have a root cert other than the graph root
                 if cert_to_process != self.anchor and cert_to_process.is_trust_anchor():
                     cert_to_process.status = GsaCertificate.Status.NO_PATH
                     cert_to_process.pathbuilder_result[
                         "INFO"
                     ] = "Certificate is a trust anchor, but not the root of the graph"
                     # Create an empty Certificate Path
-                    cert_to_process.path_to_anchor = CertificatePath(certs=[])
+                    # cert_to_process.path_to_anchor = CertificatePath(certs=[])
                     self.no_path.append(cert_to_process)
 
-                if (
-                    cert_to_process.status == GsaCertificate.Status.UNCHECKED
-                ):  # get a path to pass to pathbuilder (pathbuilder will only validate)
+                # Next see if the certificate status is UNCHECKED
+                if cert_to_process.status == GsaCertificate.Status.UNCHECKED:  
                     try:
+                        # see if we've already got a path to pass to pathbuilder (pathbuilder will only validate)
                         cert_to_process.path_to_anchor = self.get_path(
                             leaf_cert=cert_to_process
                         )
+                        # If so, check the status of the cert with pathbuilder
                         cert_to_process.status = cert_to_process.get_status(
                             proposed_path=cert_to_process.path_to_anchor
                         )
+                    # If anything goes wrong, send the cert to purgatory for now
                     except Exception:
                         logger.debug(
                             "Path not found. Sending %s to purgatory",
@@ -130,13 +133,17 @@ class CertificateGraph:
                     cert_to_process.identifier,
                     str(cert_to_process.status),
                 )
+
+                # IF we were successful in validating the cert,or we are processing the anchor, add it to the graph
                 if cert_to_process.status == GsaCertificate.Status.VALID:
+                    logger.debug("Adding cert %s to edges", cert_to_process)
                     self.nodes.add(cert_to_process.issuer)
                     self.nodes.add(cert_to_process.subject)
                     self.edges[cert_to_process.identifier] = cert_to_process
+                    logger.debug("Adding path for %s", cert_to_process.path_identifier)
                     self.paths[
                         cert_to_process.path_identifier
-                    ] = cert_to_process.path_to_anchor
+                    ] = CertificatePath(cert_to_process.path_to_anchor.certs + [cert_to_process])
 
                     logger.debug(
                         "Adding SIA and AIA certificates from %s to certs_to_process.",
