@@ -5,4 +5,4 @@ reports/**
 *.pyc
 **/__pycache__/*
 CACertificatesValidatingToFederalCommonPolicyG2.p7b
-fpki-certs.gexf
+*.gexf
