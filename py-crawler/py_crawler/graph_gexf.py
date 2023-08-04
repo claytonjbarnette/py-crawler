@@ -10,7 +10,7 @@ from xml.dom import minidom
 
 from .certificate_graph import CertificateGraph
 
-logger = logging.getLogger("py_crawler.graph_xml")
+logger = logging.getLogger("py_crawler.graph_gexf")
 
 
 class GraphGexf:
@@ -127,22 +127,13 @@ class GraphGexf:
     def __init__(self, cert_graph: CertificateGraph) -> None:
         self.cert_graph = cert_graph
 
-        # Replaces with sorted properties. Delete if that works
-        # Use the subjects of the certs as the list of nodes.
-        # Use a set to avoid duplicates
-        # node_ids = set(
-        #     [
-        #         cert.subject
-        #         for cert in cert_graph.edges.values()
-        #         if cert.subject != cert.issuer
-        #     ]
-        # )
-
         node_ids = self.cert_graph.sorted_nodes
 
         # Get all the certs that are not self-signed or self-issued (these confuse gexf).
         edge_certs = [
-            cert for cert in cert_graph.sorted_edges.values() if cert.subject != cert.issuer
+            cert
+            for cert in cert_graph.sorted_edges.values()
+            if cert.subject != cert.issuer
         ]
 
         # Build the node list
@@ -154,10 +145,13 @@ class GraphGexf:
                 for cert in edge_certs
                 if cert.subject == node
             ]
-            if len(edges_to_node) > 1:
-                self.nodes[node] = min(edges_to_node)
-            else:
-                self.nodes[node] = edges_to_node[0]
+
+            # In case there are multiple paths from a node to the anchor, choose
+            # the shortest. If there is only one, min() returns it
+            self.nodes[node] = min(edges_to_node)
+
+        # Manually set the anchor to the center of the graph
+        self.nodes[cert_graph.anchor.issuer] = 0
 
         # Calculate ring geometry, the number of rings (with anchor at the center)
         # and the number of points in each ring

@@ -23,12 +23,13 @@ class CrawlerRunReport:
             - run_graph.edges[identifier].cert.not_valid_before
             < datetime.timedelta(weeks=2)
         ]
-        self.report["issuers"] = sorted([node for node in run_graph.nodes])
+        self.report["issuers"] = [node for node in run_graph.sorted_nodes]
         self.report["valid-certs"] = [
-            self.cert_report(cert=cert) for cert in run_graph.edges.values()
+            self.cert_report(cert=cert) for cert in run_graph.sorted_edges.values()
         ]
         self.report["bad-certs"] = [
-            self.cert_report(cert=cert) for cert in run_graph.no_path
+            self.cert_report(cert=cert)
+            for cert in run_graph.sorted_no_path_certs.values()
         ]
         self.report["found-paths"] = [
             path.description for path in run_graph.paths.values()

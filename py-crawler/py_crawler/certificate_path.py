@@ -8,6 +8,7 @@ from .certs_to_p7b import P7C
 if TYPE_CHECKING:
     from .gsa_certificate import GsaCertificate
 
+
 @dataclass
 class CertificatePath:
     # This represents a CertifiatePath - designed to speed up processing by caching potential paths
@@ -20,8 +21,7 @@ class CertificatePath:
     # A list of the certs in the path
     certs: list[GsaCertificate]
     # A representation of the path in p7c der format
-    p7c: bytes() = field(init=False)
-
+    p7c: bytes = field(init=False)
 
     def __post_init__(self):
         if len(self.certs) > 0:

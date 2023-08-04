@@ -9,12 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, OrderedDict, TYPE_CHECKING
+from typing import Any, List, Optional, OrderedDict, TYPE_CHECKING
 
-import ldap3
 import requests
 from asn1crypto import cms, pem, x509
-from ldap3.utils import uri as ldap_uri
 
 if TYPE_CHECKING:
     from .certificate_path import CertificatePath
@@ -45,13 +43,13 @@ class GsaCertificate:
     subject: str
     status: Status
     pathbuilder_result: dict[str, str]
-    sia_results: List[XiaResult] = []
-    aia_results: List[XiaResult] = []
+    sia_results: List[XiaResult]
+    aia_results: List[XiaResult]
     path_to_anchor: CertificatePath
 
     def get_status(self, proposed_path: CertificatePath) -> Status:
         script_directory = Path(os.path.dirname(os.path.abspath(__file__)))
-        logger.debug("Getting Certificate Status")
+        logger.debug("Checking Certificate Status")
         # If the certificate is expired or not yet valid, don't bother checking anything else
         if (
             "validity" in self.cert_dict.keys()
@@ -113,7 +111,7 @@ class GsaCertificate:
                 self.pathbuilder_result["details"] = error
 
             if pathbuilder_process is not None:
-                logger.debug(pathbuilder_process.stdout)
+                logger.debug(pathbuilder_process.stdout.rstrip())
                 pathbuilder_status = json.loads(pathbuilder_process.stdout)
                 self.pathbuilder_result.update(pathbuilder_status)
 
@@ -135,6 +133,11 @@ class GsaCertificate:
         return self.status
 
     def __init__(self, input_bytes: bytes = b"") -> None:
+        # Initialize instance variables YOU MUST DO THIS OR THE VALUES ARE SHARED BY ALL INSTANCES OF THE CLASS!
+        self.sia_results = []
+        self.aia_results = []
+        self.pathbuilder_result = {}
+
         if len(input_bytes) > 0:
             cert_bytes: Optional[bytes]  # This is to prevent a linting error
             cert: x509.Certificate
@@ -211,7 +214,13 @@ class GsaCertificate:
         return identifier
 
     def __str__(self) -> str:
-        return self.issuer + " -> " + self.subject
+        return (
+            self.issuer
+            + " -> "
+            + self.subject
+            + ":"
+            + str(self.cert_dict["serial_number"])
+        )
 
     def is_trust_anchor(self) -> bool:
         # Some certs in the graph are trust anchors without any path.
@@ -226,7 +235,7 @@ class GsaCertificate:
 
         return False
 
-    def get_info_access_certs_http(self, url: str) -> XiaResult:
+    def get_info_access_result_http(self, url: str) -> XiaResult:
         status: str = "UNKNOWN"
         found_certs: List["GsaCertificate"] = []
         logger.debug("Fetching P7C from %s", url)
@@ -242,65 +251,25 @@ class GsaCertificate:
             p7c: Optional[cms.ContentInfo] = None
             try:
                 p7c = cms.ContentInfo.load(info_access_response.content)
-            except ValueError as ve:
+            except ValueError:
                 status = "Invalid P7C"
 
             status = "OK"
 
             if (
-                type(p7c) == cms.ContentInfo
-                and p7c != None
+                p7c != None
+                and type(p7c) == cms.ContentInfo
                 and p7c["content"] is not None
             ):
                 for cert in p7c["content"]["certificates"]:
-                    logger.debug("found cert")
                     found_certs.append(GsaCertificate(input_bytes=cert.dump()))
         else:
             status = "Zero-byte P7C"
 
         return XiaResult(url=url, status=status, certs=found_certs)
 
-    def get_sia_ldap(self, url: str) -> List["GsaCertificate"]:
-        # TODO - we can get the results from LDAP, but not sure how to process the crossCertificatePair
-        found_certs: List[GsaCertificate] = []
-        uri_components: Dict[str, str] = ldap_uri.parse_uri(url)
-        # if uri_components["scheme"] != "ldap":
-        #     logger.error("get_sia_ldap called, but schema is not ldap for %s", url)
-        #     raise Exception("Invalid URL for LDAP")
-
-        server_str = uri_components["host"]
-        server_str += (
-            uri_components["port"] if uri_components["port"] is not None else ""
-        )
-
-        search_filter = "(objectclass=*)"
-
-        server = ldap3.Server(server_str, get_info=ldap3.SCHEMA)
-
-        with ldap3.Connection(
-            server_str, auto_bind="DEFAULT", check_names=True
-        ) as conn:
-            conn.search(
-                search_base=uri_components["base"],
-                search_filter=search_filter,
-                search_scope=ldap3.BASE,
-                attributes=uri_components["attributes"],
-            )
-            if conn.response is not None:
-                results: List[bytes] = conn.response[0]["raw_attributes"][
-                    "crossCertificatePair;binary"
-                ]
-
-                for result in results:
-                    pass  # crossCertificatePairs are funky to process..
-                    # asn_cert_pair_sequence: core.Sequence = core.Sequence.load(result)
-                    # logger.debug("CertificatePair: %s", asn_cert_pair_sequence.debug())
-                    # found_certs.append(GsaCert(input_bytes=asn_cert_pair_sequence.dump()))
-
-        return found_certs
-
     def get_sia_certs(self) -> List["GsaCertificate"]:
-        sia_certs = []
+        sia_certs: list[GsaCertificate] = []
 
         # If we haven't looked at the SIA, do it now.
         if len(self.sia_results) == 0:
@@ -329,7 +298,7 @@ class GsaCertificate:
         return sia_certs
 
     def get_aia_certs(self) -> List["GsaCertificate"]:
-        aia_certs = []
+        aia_certs: list[GsaCertificate] = []
 
         # Populate the aia_results attributes based on any discovered AIA URLs
         if len(self.aia_results) == 0:
@@ -357,10 +326,10 @@ class GsaCertificate:
         logger.debug("Found %s certs in AIA fields", str(len(aia_certs)))
         return aia_certs
 
-    def get_info_access_url(self, info_access_url) -> XiaResult:
+    def get_info_access_url(self, info_access_url: str) -> XiaResult:
         if info_access_url.startswith("http://"):
             logger.debug("Found HTTP URL %s in %s", info_access_url, self)
-            return self.get_info_access_certs_http(info_access_url)
+            return self.get_info_access_result_http(info_access_url)
 
         elif info_access_url.startswith("ldap://"):
             logger.debug("Skipping LDAP URL %s in %s", info_access_url, self)
