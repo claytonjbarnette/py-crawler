@@ -216,42 +216,79 @@ class CertificateGraph:
 
         # To be extra sure we get everything, we're going to do one pass to build paths for all the certs in the list
         for cert_to_process in purgatory_certs:
-            try:
-                logger.debug("Checking for path for %s", cert_to_process)
-                cert_to_process.path_to_anchor = self.get_path(
-                    leaf_cert=cert_to_process
-                )
-            except Exception:
-                logger.debug(
-                    "Path not found for %s during first round.",
-                    cert_to_process.identifier,
-                )
+            if cert_to_process.identifier in processed_certs.keys():
+                # If so, skip it.
+                logger.info("#########")
+                logger.info("Skipping already processed cert %s", cert_to_process)
+                logger.info("#########")
+
+            else:
+                try:
+                    logger.debug("Checking for path for %s", cert_to_process)
+                    cert_to_process.path_to_anchor = self.get_path(
+                        leaf_cert=cert_to_process
+                    )
+                    cert_to_process.status = cert_to_process.get_status(
+                        proposed_path=cert_to_process.path_to_anchor
+                    )
+                except Exception:
+                    logger.debug(
+                        "Path not found for %s during first round.",
+                        cert_to_process.identifier,
+                    )
+
+                if cert_to_process.status == GsaCertificate.Status.VALID:
+                    logger.debug("Success at last for %s", cert_to_process.identifier)
+                    for cert in self.add_valid_cert_to_graph_and_get_Xia_certs(
+                        cert=cert_to_process
+                    ):
+                        if cert.identifier not in processed_certs:
+                            purgatory_certs.append(cert)
+
+                    # Add the processed cert to the list of processes certs
+                    processed_certs[cert_to_process.identifier] = cert_to_process
 
         # Now we'll try again - just in case we found the missing path
         for cert_to_process in purgatory_certs:
-            try:
-                cert_to_process.path_to_anchor = self.get_path(
-                    leaf_cert=cert_to_process
-                )
-                cert_to_process.status = cert_to_process.get_status(
-                    proposed_path=cert_to_process.path_to_anchor
-                )
-            except Exception:
-                logger.debug(
-                    "Path not found for %s during second round. Sending to failed",
-                    cert_to_process.identifier,
-                )
-                self.no_path_certs[str(cert_to_process)] = cert_to_process
+            if cert_to_process.identifier in processed_certs.keys():
+                # If so, skip it.
+                logger.info("#########")
+                logger.info("Skipping already processed cert %s", cert_to_process)
+                logger.info("#########")
 
-            if cert_to_process.status == GsaCertificate.Status.VALID:
-                logger.debug("Success at last for %s", cert_to_process.identifier)
             else:
-                # We get here when we couldn't get the cert to work on the second path
-                logger.debug(
-                    "Repeatedly failed to find a path. Sending %s to failed",
-                    cert_to_process.identifier,
-                )
-                self.no_path_certs[str(cert_to_process)] = cert_to_process
+                try:
+                    cert_to_process.path_to_anchor = self.get_path(
+                        leaf_cert=cert_to_process
+                    )
+                    cert_to_process.status = cert_to_process.get_status(
+                        proposed_path=cert_to_process.path_to_anchor
+                    )
+                except Exception:
+                    logger.debug(
+                        "Path not found for %s during second round. Sending to failed",
+                        cert_to_process.identifier,
+                    )
+                    self.no_path_certs[str(cert_to_process)] = cert_to_process
+
+                if cert_to_process.status == GsaCertificate.Status.VALID:
+                    logger.debug("Success at last for %s", cert_to_process.identifier)
+                    for cert in self.add_valid_cert_to_graph_and_get_Xia_certs(
+                        cert=cert_to_process
+                    ):
+                        if cert.identifier not in processed_certs:
+                            purgatory_certs.append(cert)
+
+                    # Add the processed cert to the list of processes certs
+                    processed_certs[cert_to_process.identifier] = cert_to_process
+
+                else:
+                    # We get here when we couldn't get the cert to work on the second path
+                    logger.debug(
+                        "Repeatedly failed to find a path. Sending %s to failed",
+                        cert_to_process.identifier,
+                    )
+                    self.no_path_certs[str(cert_to_process)] = cert_to_process
 
         logger.info("#########")
         logger.info("End of crawler run")
