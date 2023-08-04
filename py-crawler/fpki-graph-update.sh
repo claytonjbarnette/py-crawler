@@ -11,7 +11,7 @@ SECRET_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken"
 #------------------------------------------------------
 # Directory where we will install the Playbooks site from github
 if [ -v REPO_DIR ]; then
-  echo "Playbooks Directory set by docker to $REPO_DIR"
+  echo "Git Repo Directory set by docker to $REPO_DIR"
 else
   echo "No \$REPO_DIR set. Setting to ../REPO"
   REPO_DIR="../REPO"
@@ -19,7 +19,7 @@ fi
 
 # Directory where we will keep the output of the command
 if [ -v OUTPUT_DIR ]; then
-  echo "Playbooks Directory set by docker to $OUTPUT_DIR"
+  echo "Output Directory set by docker to $OUTPUT_DIR"
 else
   echo "No \$OUTPUT_DIR set. Setting to ../OUTPUT"
   OUTPUT_DIR="../OUTPUT"
@@ -93,6 +93,7 @@ fi
   echo "Updating site with new artifacts"
   cp "$OUTPUT_DIR/CACertificatesValidatingToFederalCommonPolicyG2.p7b" _implement/tools
   cp "$OUTPUT_DIR/fpki-certs.gexf" _implement/tools
+  cp "$OUTPUT_DIR/crawler-lastrun.json" _implement/tools
   sed -e "s/\*\*Last Update\*\*: .*/\*\*Last Update\*\*: $(date +"%B %d, %Y")/" _implement/fpki_notifications.md > _implement/fpki_notifications.md.tmp
   mv _implement/fpki_notifications.md.tmp _implement/fpki_notifications.md
 

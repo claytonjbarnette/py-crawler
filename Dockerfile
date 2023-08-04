@@ -41,7 +41,7 @@ RUN ["poetry", "check"]
 # Install project dependencies
 RUN poetry install --no-interaction
 
-ENV PLAYBOOKS_DIR="/PLAYBOOKS"
+ENV REPO_DIR="/REPO"
 ENV OUTPUT_DIR="/OUTPUT"
 
 

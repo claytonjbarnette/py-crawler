@@ -62,6 +62,11 @@ def main():
     with open(Path(report_path, report_filename), "w") as report:
         report.write(run_report.to_json())
 
+    logger.info("Writing latest report to output directory")
+    latest_report_filename = "crawler-lastrun.json"
+    with open(Path(output_path, latest_report_filename), "w") as latest_report:
+        latest_report.write(run_report.to_json())
+
     # Next, produce a P7C
     logger.info("Creating P7B file")
     common_p7b = P7C(list(common_graph.edges.values()))
