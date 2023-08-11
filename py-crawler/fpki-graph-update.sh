@@ -115,6 +115,6 @@ fi
   ISSUE_NUM=$(echo $ISSUE | cut -f 7 -d "/")
 
   # Open a PR linked to the Issue
-  echo "Creating PR"
-  gh pr create --repo "$REPO" --head "$BRANCH" --base "staging" --title "$(date +%m%d) Fpki Graph Update" --body "Closes #$ISSUE_NUM"
+  # echo "Creating PR"
+  # gh pr create --repo "$REPO" --head "$BRANCH" --base "staging" --title "$(date +%m%d) Fpki Graph Update" --body "Closes #$ISSUE_NUM"
 )
