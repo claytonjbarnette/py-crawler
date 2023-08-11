@@ -9,16 +9,16 @@ if TYPE_CHECKING:
 
 
 class P7C:
-    intermediate_certs: List[GsaCertificate]
+    certs: List[GsaCertificate]
 
     def __init__(self, intermediate_certs: List[GsaCertificate]) -> None:
-        self.intermediate_certs = intermediate_certs
+        self.certs = intermediate_certs
 
     def get_bytes(self) -> bytes:
-        p7c_bytes = []
+        p7c_bytes: bytes
         p7c_certs = cms.CertificateSet()
 
-        for gsaCert in self.intermediate_certs:
+        for gsaCert in self.certs:
             p7c_certs.append(cms.CertificateChoices({"certificate": gsaCert.cert}))
 
         p7c_input = cms.SignedData(
