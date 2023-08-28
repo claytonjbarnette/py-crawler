@@ -70,6 +70,8 @@ fi
     # sync the repo
     echo "Repo found. Syncing..."
     gh repo sync --force
+    echo "Deleting branches that have been merged"
+    git branch --merged | xargs git branch -d
   else
     # initialize and update the repo
     echo "Initializing the playbooks REPO"
