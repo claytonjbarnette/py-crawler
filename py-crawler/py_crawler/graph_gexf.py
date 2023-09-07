@@ -146,9 +146,10 @@ class GraphGexf:
                 if cert.subject == node
             ]
 
-            # In case there are multiple paths from a node to the anchor, choose
-            # the shortest. If there is only one, min() returns it
-            self.nodes[node] = min(edges_to_node)
+            if len(edges_to_node) > 0:
+                # In case there are multiple paths from a node to the anchor, choose
+                # the shortest. If there is only one, min() returns it
+                self.nodes[node] = min(edges_to_node)
 
         # Manually set the anchor to the center of the graph
         self.nodes[cert_graph.anchor.issuer] = 0

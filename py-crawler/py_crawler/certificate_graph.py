@@ -85,9 +85,11 @@ class CertificateGraph:
         self, cert: GsaCertificate
     ) -> list[GsaCertificate]:
         certs_to_process: list[GsaCertificate] = []
-        logger.debug("Adding cert %s to edges", cert)
+        logger.debug("Adding %s to nodes", cert.issuer)
         self.nodes.add(cert.issuer)
+        logger.debug("Adding %s to nodes", cert.subject)
         self.nodes.add(cert.subject)
+        logger.debug("Adding cert %s to edges", cert)
         self.edges[cert.identifier] = cert
         logger.debug("Adding path designated %s", cert.path_identifier)
         self.paths[cert.path_identifier] = CertificatePath(
@@ -213,6 +215,12 @@ class CertificateGraph:
         # When we reach this point, every cert should be in processed_certs or purgatory_certs
         # We will take one more pass at purgatory certs, and send them to heaven or hell
         logger.debug("Processing %s certs in purgatory.", len(purgatory_certs))
+
+        # First, we clear the list or processed certs
+        logger.debug(
+            "Clearing processed certs list so we can start over with certs in purgatory"
+        )
+        processed_certs.clear()
 
         # To be extra sure we get everything, we're going to do one pass to build paths for all the certs in the list
         for cert_to_process in purgatory_certs:
