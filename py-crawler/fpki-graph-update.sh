@@ -67,6 +67,9 @@ fi
 
   # See if we've already initialized the git repo here
   if [ "$(git rev-parse --is-inside-work-tree)" = "true" ]; then
+    # switch to staging branch
+    echo "Switching to 'staging' branch"
+    git branch staging
     # sync the repo
     echo "Repo found. Syncing..."
     gh repo sync --force
