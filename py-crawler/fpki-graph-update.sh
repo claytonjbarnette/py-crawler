@@ -1,3 +1,41 @@
+
+#------------------------------------------------------
+# PRERUN SETTINGS: Important! 
+# Please set your GitHub Username and Email address below before running Docker.
+# Note: Also make sure you added you accesstoken form GitHub to the /py_crawler/secrets/accesstoken
+# and change DEVMODE if testing on your own repo and branches
+#------------------------------------------------------
+GH_USERNAME=""
+GH_EMAILADDRESS=""
+
+# Bail if the above is not set. 
+if [$GH_USERNAME="" || $GH_EMAILADDRESS=""]; then
+  echo "Your GSA Username or Email Address is blank\n"
+  echo "Please update this file and retry."
+  exit;
+fi
+
+
+#------------------------------------------------------
+# Development vs Production
+#
+# Set DEVMODE to true to test on your own [exp: clatonjbarnette/idmanagement.gov] repo
+# else: this script runs in production mode for idmanagement.gov
+#------------------------------------------------------
+DEVMODE=false
+DEVREPO="claytonjbarnette/idmanagement.gov" # specify your own repo here for testing.
+PRODREPO="GSA/idmanagement.gov" # default repo
+
+if [DEVMODE=true]; then
+# REPO is development repo specified by user
+  REPO=$DEVREPO
+  echo "DEVMODE: Setting DEVELOPMENT REPO to $REPO"
+else
+# REPO is production staging repo: gsa/idmanagement.gov
+  REPO=$PRODREPO
+  echo "PRODMODE: Setting PRODUCTION REPO to $REPO"  
+fi
+
 #------------------------------------------------------
 # Setup important variables
 #------------------------------------------------------
@@ -9,7 +47,7 @@ SECRET_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken"
 #------------------------------------------------------
 # Confirm env variable (if run from doocker) is present
 #------------------------------------------------------
-# Directory where we will install the Playbooks site from github
+# Directory where we will install the idmanagement.gov site from github
 if [ -v REPO_DIR ]; then
   echo "Git Repo Directory set by docker to $REPO_DIR"
 else
@@ -32,7 +70,7 @@ fi
 poetry run python -m py_crawler
 
 #------------------------------------------------------
-# Update Playbooks site with new artifacts
+# Update IDManagement.gov site with new artifacts
 #------------------------------------------------------
 
 #------------------------------------------------------
@@ -49,12 +87,12 @@ fi
 # Set up GIT Variables
 #------------------------------------------------------
 # GIT REPO URL
-REPO="GSA/idmanagement.gov"
+ # Updaed: see Development check above CB
 # BRANCH FOR THIS RUN
 BRANCH=$(date +%m%d)-fpki-graph-update
 
 if ! test -d $REPO_DIR; then
-    # If the playbooks site doesn't exist here, create it
+    # If the idmanagement.gov site doesn't exist here, create it
     echo "Setting \$REPO_DIR to $REPO_DIR"
     mkdir $REPO_DIR
 fi
@@ -63,7 +101,7 @@ fi
   echo "Executing gh auth login"
   echo $GH_TOKEN | gh auth login --with-token
   gh auth setup-git
-  cd "$REPO_DIR" || { echo "Playbooks directory does not exist!"; exit; }
+  cd "$REPO_DIR" || { echo "IDManagement directory does not exist!"; exit; }
 
   # See if we've already initialized the git repo here
   if [ "$(git rev-parse --is-inside-work-tree)" = "true" ]; then
@@ -77,11 +115,11 @@ fi
     git branch --merged | xargs git branch -d
   else
     # initialize and update the repo
-    echo "Initializing the playbooks REPO"
+    echo "Initializing the IDManagement REPO"
     gh repo clone $REPO .
     gh repo set-default $REPO
-    git config user.name "py-crawler"
-    git config user.email "robert.e.sherwood@gsa.gov"
+    git config user.name "$GH_USERNAME"
+    git config user.email $GH_EMAILADDRESS
   fi
 
   echo "Checking for local branch for the current run"
@@ -105,7 +143,7 @@ fi
   # Check for open PR
   # OPEN_PR=$(gh pr list --head $(date +%m%d)-fpki-graph-update --json number)
 
-  # Submit the playbooks updates to the git repo
+  # Submit the idmanagement updates to the git repo
   echo "Adding and commiting updates"
   git add -A
   git commit -m "automatic crawler update"
