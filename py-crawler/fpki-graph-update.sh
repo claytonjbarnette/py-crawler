@@ -5,6 +5,7 @@
 SCRIPT_DIRECTORY=$(pwd)
 # Secret file location
 SECRET_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken"
+SIGNING_KEY_PUB="$SCRIPT_DIRECTORY/py_crawler/secrets/signing_key.pub"_PUB
 
 #------------------------------------------------------
 # Confirm env variable (if run from doocker) is present
@@ -105,10 +106,15 @@ fi
   # Check for open PR
   # OPEN_PR=$(gh pr list --head $(date +%m%d)-fpki-graph-update --json number)
 
+  # Configuring signing keys (this should only need to be done once, but is low impact, so we'll just do it every time)
+  echo "Configuring Signing Key"
+  git config gpg.format ssh
+  git config user.signingkey $SIGNING_KEY_PUB
+
   # Submit the playbooks updates to the git repo
   echo "Adding and commiting updates"
   git add -A
-  git commit -m "automatic crawler update"
+  git commit -S -m "automatic crawler update"
   echo "Submitting updates to origin"
   git push --all
 
