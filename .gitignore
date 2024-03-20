@@ -1,8 +1,10 @@
 crawler-*
 **/secrets/accesstoken
+**/secrets/signing_key*
 logs/**
 reports/**
 *.pyc
 **/__pycache__/*
 CACertificatesValidatingToFederalCommonPolicyG2.p7b
 *.gexf
+
