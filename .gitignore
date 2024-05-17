@@ -8,3 +8,5 @@ reports/**
 CACertificatesValidatingToFederalCommonPolicyG2.p7b
 *.gexf
 
+**/secrets/gh_email
+**/secrets/gh_user

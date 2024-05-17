@@ -1,3 +1,5 @@
 Add a file with your github access token in this directory. Call it "accesstoken"
 
-For signing of commits, add an SSH private key in a file called "signing_key" in this directory
+Add a public and private SSH signing key called "signing_key.pub" and "signing_key" respectively. These keys must be associated with your acccount in github.
+
+Create two files in for your GitHub user name and email called "gh_user" and "gh_email".
