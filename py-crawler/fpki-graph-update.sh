@@ -7,6 +7,8 @@ SCRIPT_DIRECTORY=$(pwd)
 ACCESS_TOKEN_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/accesstoken"
 SIGNING_KEY_PUB="$SCRIPT_DIRECTORY/py_crawler/secrets/signing_key.pub"
 SIGNING_KEY="$SCRIPT_DIRECTORY/py_crawler/secrets/signing_key"
+GH_USER_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/gh_user"
+GH_EMAIL_FILE="$SCRIPT_DIRECTORY/py_crawler/secrets/gh_email"
 
 #------------------------------------------------------
 # Confirm env variable (if run from doocker) is present
@@ -32,6 +34,26 @@ else
   echo "No \$OUTPUT_DIR set. Setting to ../OUTPUT"
   OUTPUT_DIR="../OUTPUT"
 fi
+
+#------------------------------------------------------
+# Confirm git user information is present
+#------------------------------------------------------
+if test -f "$GH_USER_FILE"; then
+  # Set GH Username
+  GH_USER=$(cat "$GH_USER_FILE")
+else
+  echo No gh username at $GH_USER_FILE
+  exit 1
+fi
+
+if test -f "$GH_EMAIL_FILE"; then
+  # Set GH Email address
+  GH_EMAIL=$(cat "$GH_EMAIL_FILE")
+else
+  echo No gh email at $GH_EMAIL_FILE
+  exit 1
+fi
+
 
 #------------------------------------------------------
 # Confirm secret is present
@@ -95,7 +117,7 @@ poetry run python -m py_crawler
     echo "Repo found. Syncing..."
     gh repo sync --force
     echo "Deleting branches that have been merged"
-    git branch --merged | xargs git branch -d
+    git branch -d `git branch --merged | xargs`
     echo "Deleting local references to branches that have been deleted on remote"
     git fetch --prune
   else
@@ -103,12 +125,16 @@ poetry run python -m py_crawler
     echo "Initializing the playbooks REPO"
     gh repo clone $REPO .
     gh repo set-default $REPO
-    git config user.name "py-crawler"
-    git config user.email "robert.e.sherwood@gsa.gov"
-    echo "Configuring Git with public signing key"
-    git config gpg.format ssh
-    git config user.signingkey $SIGNING_KEY_PUB
   fi
+
+  # Set the user identifiers and credentials
+  echo "Setting username"
+  git config user.name $GH_USER
+  echo "Setting email address"
+  git config user.email $GH_EMAIL
+  echo "Configuring Git with public signing key"
+  git config gpg.format ssh
+  git config user.signingkey $SIGNING_KEY_PUB
 
   echo "Checking for local branch for the current run"
   if [ "$(git branch --list $BRANCH)" = "" ]; then
